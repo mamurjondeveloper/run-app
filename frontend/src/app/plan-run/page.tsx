@@ -295,7 +295,7 @@ export default function PlanRunPage() {
 
         <RouteMap
           path={livePath.length > 1 ? livePath : route?.path ?? []}
-          secondaryPath={route?.path}
+          secondaryPath={livePath.length > 1 ? route?.path : undefined}
           height={300}
         />
         {livePath.length < 2 && <p className="text-xs text-gray-500 text-center">Waiting for a GPS fix… follow the dashed planned route once tracking starts.</p>}
