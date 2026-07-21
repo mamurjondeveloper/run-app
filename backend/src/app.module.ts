@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { RunsModule } from './runs/runs.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
+import { RoutesModule } from './routes/routes.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
     AuthModule,
     RunsModule,
     LeaderboardModule,
+    RoutesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { motion } from 'framer-motion';
-import { Home, Trophy, Footprints, LogOut } from 'lucide-react';
+import { Home, Trophy, Footprints, LogOut, History, Map } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -16,6 +16,8 @@ export default function Sidebar() {
   const links = [
     { name: 'Dashboard', href: '/', icon: Home },
     { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
+    { name: 'History', href: '/history', icon: History },
+    { name: 'Plan a Run', href: '/plan-run', icon: Map },
   ];
 
   return (

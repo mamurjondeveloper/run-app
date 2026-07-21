@@ -31,6 +31,7 @@ import {
   computeRunStats,
   RunPoint,
 } from './locationTask';
+import LeafletMap from './LeafletMap';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -38,6 +39,19 @@ interface UserInfo {
   id: string;
   username: string;
   avatarUrl: string | null;
+  isBanned?: boolean;
+  bannedReason?: string | null;
+}
+
+interface RunDetail extends Run {
+  path: RunPoint[];
+  flaggedSegments: number;
+}
+
+interface SuggestedRoute {
+  distanceMeters: number;
+  durationSec: number;
+  path: RunPoint[];
 }
 
 interface Stats {
@@ -56,7 +70,9 @@ interface Run {
   distanceMeters: number;
   durationSec: number;
   avgSpeedKmh: number;
+  maxSpeedKmh: number;
   pointsEarned: number;
+  flaggedSegments?: number;
 }
 
 interface LeaderboardEntry {
@@ -69,10 +85,29 @@ interface LeaderboardEntry {
 }
 
 type Period = 'daily' | 'weekly' | 'alltime';
-type Screen = 'home' | 'leaderboard' | 'profile';
+type Screen = 'home' | 'leaderboard' | 'history' | 'plan' | 'profile';
+
+const PLAN_DISTANCES = [1, 2, 3, 5, 10];
 
 function formatKm(meters: number) {
   return (meters / 1000).toFixed(2);
+}
+
+function lastSegmentTooFast(points: RunPoint[]): boolean {
+  if (points.length < 2) return false;
+  const a = points[points.length - 2];
+  const b = points[points.length - 1];
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  const meters = 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
+  const seconds = (b.ts - a.ts) / 1000;
+  if (meters >= 200 || seconds <= 0) return false;
+  const speedKmh = meters / 1000 / (seconds / 3600);
+  return speedKmh > 40;
 }
 
 function AppInner() {
@@ -97,6 +132,20 @@ function AppInner() {
   const [period, setPeriod] = useState<Period>('daily');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
+  const [myRank, setMyRank] = useState<{ rank: number | null; entry: LeaderboardEntry | null }>({ rank: null, entry: null });
+
+  const [historyRuns, setHistoryRuns] = useState<Run[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
+  const [isLoadingRunDetail, setIsLoadingRunDetail] = useState(false);
+
+  const [planTargetKm, setPlanTargetKm] = useState(5);
+  const [isLocatingForPlan, setIsLocatingForPlan] = useState(false);
+  const [isSuggestingRoute, setIsSuggestingRoute] = useState(false);
+  const [suggestedRoute, setSuggestedRoute] = useState<SuggestedRoute | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  const [liveSpeedWarning, setLiveSpeedWarning] = useState(false);
 
   const [profileUsername, setProfileUsername] = useState('');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
@@ -170,6 +219,7 @@ function AppInner() {
       const points = await readRunPoints();
       setLivePoints(points);
       setNowTick(Date.now());
+      setLiveSpeedWarning(lastSegmentTooFast(points));
     };
     poll();
     pollRef.current = setInterval(poll, 2000);
@@ -203,8 +253,12 @@ function AppInner() {
     if (!token) return;
     setIsLoadingLeaderboard(true);
     try {
-      const res = await getApi().get(`/leaderboard?period=${period}`);
-      setLeaderboard(res.data);
+      const [boardRes, meRes] = await Promise.all([
+        getApi().get(`/leaderboard?period=${period}`),
+        getApi().get(`/leaderboard/me?period=${period}`),
+      ]);
+      setLeaderboard(boardRes.data);
+      setMyRank(meRes.data);
     } catch {
       // Non-critical
     } finally {
@@ -215,6 +269,63 @@ function AppInner() {
   useEffect(() => {
     if (token && screen === 'leaderboard') fetchLeaderboard();
   }, [token, screen, period, fetchLeaderboard]);
+
+  const fetchHistory = useCallback(async () => {
+    if (!token) return;
+    setIsLoadingHistory(true);
+    try {
+      const res = await getApi().get('/runs/me?limit=200');
+      setHistoryRuns(res.data);
+    } catch {
+      // Non-critical
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [token, getApi]);
+
+  useEffect(() => {
+    if (token && screen === 'history') fetchHistory();
+  }, [token, screen, fetchHistory]);
+
+  const openRunDetail = async (runId: string) => {
+    setIsLoadingRunDetail(true);
+    setSelectedRun(null);
+    try {
+      const res = await getApi().get(`/runs/${runId}`);
+      setSelectedRun(res.data);
+    } catch {
+      Alert.alert('Error', 'Could not load this run');
+    } finally {
+      setIsLoadingRunDetail(false);
+    }
+  };
+
+  const handleSuggestRoute = async () => {
+    setPlanError(null);
+    setSuggestedRoute(null);
+    setIsLocatingForPlan(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        setPlanError('Location access is needed to suggest a route near you.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({});
+      setIsLocatingForPlan(false);
+      setIsSuggestingRoute(true);
+      const res = await getApi().post('/routes/suggest', {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        targetKm: planTargetKm,
+      });
+      setSuggestedRoute(res.data);
+    } catch (err: any) {
+      setPlanError(err.response?.data?.message || 'Could not generate a route near you');
+    } finally {
+      setIsLocatingForPlan(false);
+      setIsSuggestingRoute(false);
+    }
+  };
 
   useEffect(() => {
     if (screen === 'profile') {
@@ -364,6 +475,7 @@ function AppInner() {
       setActiveRunId(runId);
       setRunStartedAt(startedAt);
       setLivePoints([]);
+      setLiveSpeedWarning(false);
       setIsRunModalVisible(true);
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to start run');
@@ -399,9 +511,23 @@ function AppInner() {
       setActiveRunId(null);
       setRunStartedAt(null);
       setLivePoints([]);
+      setLiveSpeedWarning(false);
       setIsRunModalVisible(false);
-      Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.`);
+
+      if (res.data.warning) {
+        Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.\n\n${res.data.warning}`);
+      } else {
+        Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.`);
+      }
+      if (res.data.banned) {
+        Alert.alert(
+          'Account suspended',
+          'Your account has been suspended for repeated speed violations. Contact support if you think this is a mistake.',
+        );
+      }
       fetchHome();
+      const meRes = await getApi().get('/auth/me').catch(() => null);
+      if (meRes) setCurrentUser(meRes.data);
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to save run');
     } finally {
@@ -531,12 +657,23 @@ function AppInner() {
         <Text style={styles.headerTitle}>
           {screen === 'home' && 'RunApp'}
           {screen === 'leaderboard' && 'Leaderboard'}
+          {screen === 'history' && 'History'}
+          {screen === 'plan' && 'Plan a Run'}
           {screen === 'profile' && 'Profile'}
         </Text>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
           <Ionicons name="log-out-outline" size={16} color="#ef4444" />
         </TouchableOpacity>
       </View>
+
+      {currentUser.isBanned && (
+        <View style={styles.bannedBanner}>
+          <Ionicons name="shield-outline" size={16} color="#ef4444" />
+          <Text style={styles.bannedBannerText}>
+            {currentUser.bannedReason || 'Your account is suspended for suspicious speed activity.'} New runs can&apos;t be submitted.
+          </Text>
+        </View>
+      )}
 
       <View style={{ flex: 1 }}>
         {screen === 'home' && (
@@ -549,9 +686,9 @@ function AppInner() {
             ) : (
               <>
                 <TouchableOpacity
-                  style={styles.startRunButton}
+                  style={[styles.startRunButton, currentUser.isBanned && { opacity: 0.4 }]}
                   onPress={handleStartRun}
-                  disabled={isStartingRun}
+                  disabled={isStartingRun || currentUser.isBanned}
                 >
                   {isStartingRun ? (
                     <ActivityIndicator color="#000" />
@@ -570,22 +707,30 @@ function AppInner() {
                   <StatCard icon="flame-outline" label="Streak" value={`${stats?.currentStreakDays ?? 0}d`} width={screenWidth} />
                 </View>
 
-                <Text style={styles.sectionTitle}>Recent Runs</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Recent Runs</Text>
+                  <TouchableOpacity onPress={() => setScreen('history')}>
+                    <Text style={styles.viewAllLink}>View all</Text>
+                  </TouchableOpacity>
+                </View>
                 {recentRuns.length === 0 ? (
                   <Text style={styles.emptyText}>No runs yet</Text>
                 ) : (
                   recentRuns.map((run) => (
-                    <View key={run.id} style={styles.runRow}>
+                    <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
                       <View>
-                        <Text style={styles.runRowDate}>
-                          {new Date(run.startedAt).toLocaleDateString()}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.runRowDate}>
+                            {new Date(run.startedAt).toLocaleDateString()}
+                          </Text>
+                          {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
+                        </View>
                         <Text style={styles.runRowMeta}>
                           {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
                         </Text>
                       </View>
                       <Text style={styles.runRowPoints}>+{run.pointsEarned} pts</Text>
-                    </View>
+                    </TouchableOpacity>
                   ))
                 )}
               </>
@@ -608,6 +753,27 @@ function AppInner() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {!isLoadingLeaderboard && myRank.rank && myRank.entry && !leaderboard.some((e) => e.userId === currentUser.id) && (
+              <View style={[styles.leaderboardRow, styles.leaderboardRowMe, { marginBottom: 16 }]}>
+                <Text style={styles.leaderboardRank}>{myRank.rank}</Text>
+                <View style={styles.leaderboardAvatar}>
+                  {myRank.entry.avatarUrl ? (
+                    <Image source={{ uri: `${SERVER_URL}${myRank.entry.avatarUrl}` }} style={styles.leaderboardAvatarImg as any} />
+                  ) : (
+                    <Text style={styles.leaderboardAvatarInitials}>{myRank.entry.username.slice(0, 2).toUpperCase()}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.leaderboardUsername}>{myRank.entry.username} (you)</Text>
+                  <Text style={styles.leaderboardDistance}>{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</Text>
+                </View>
+                <Text style={styles.leaderboardPoints}>{myRank.entry.points} pts</Text>
+              </View>
+            )}
+            {!isLoadingLeaderboard && !myRank.rank && (
+              <Text style={[styles.emptyText, { marginBottom: 12 }]}>You haven&apos;t run in this period yet</Text>
+            )}
 
             {isLoadingLeaderboard ? (
               <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
@@ -637,6 +803,76 @@ function AppInner() {
                   <Text style={styles.leaderboardPoints}>{entry.points} pts</Text>
                 </View>
               ))
+            )}
+          </ScrollView>
+        )}
+
+        {screen === 'history' && (
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {isLoadingHistory ? (
+              <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
+            ) : historyRuns.length === 0 ? (
+              <Text style={styles.emptyText}>No runs yet</Text>
+            ) : (
+              historyRuns.map((run) => (
+                <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.runRowDate}>{new Date(run.startedAt).toLocaleDateString()}</Text>
+                      {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
+                    </View>
+                    <Text style={styles.runRowMeta}>
+                      {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
+                    </Text>
+                  </View>
+                  <Text style={styles.runRowPoints}>+{run.pointsEarned} pts</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        )}
+
+        {screen === 'plan' && (
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <Text style={styles.planIntro}>Pick a distance and get a loop route near you to follow.</Text>
+
+            <View style={styles.planDistanceRow}>
+              {PLAN_DISTANCES.map((km) => (
+                <TouchableOpacity
+                  key={km}
+                  onPress={() => setPlanTargetKm(km)}
+                  style={[styles.planDistanceChip, planTargetKm === km && styles.planDistanceChipActive]}
+                >
+                  <Text style={[styles.planDistanceChipText, planTargetKm === km && styles.planDistanceChipTextActive]}>
+                    {km} km
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.primaryButton, { marginTop: 16 }]}
+              onPress={handleSuggestRoute}
+              disabled={isLocatingForPlan || isSuggestingRoute}
+            >
+              {isLocatingForPlan || isSuggestingRoute ? (
+                <ActivityIndicator color="#000" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Suggest a {planTargetKm} km route near me</Text>
+              )}
+            </TouchableOpacity>
+
+            {planError && <Text style={styles.planError}>{planError}</Text>}
+
+            {suggestedRoute && (
+              <View style={{ marginTop: 20 }}>
+                <LeafletMap path={suggestedRoute.path} height={280} />
+                <View style={styles.statsGrid}>
+                  <StatCard icon="footsteps-outline" label="Route Distance" value={`${(suggestedRoute.distanceMeters / 1000).toFixed(2)} km`} width={screenWidth} />
+                  <StatCard icon="time-outline" label="Est. Walk Time" value={`~${Math.round(suggestedRoute.durationSec / 60)} min`} width={screenWidth} />
+                </View>
+                <Text style={styles.planHint}>Hit Start Run on Home and follow this loop to hit your target distance.</Text>
+              </View>
             )}
           </ScrollView>
         )}
@@ -746,7 +982,15 @@ function AppInner() {
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('leaderboard')} style={styles.tabItem}>
           <Ionicons name={screen === 'leaderboard' ? 'trophy' : 'trophy-outline'} size={20} color={screen === 'leaderboard' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'leaderboard' && { color: '#22c55e' }]}>Leaderboard</Text>
+          <Text style={[styles.tabLabel, screen === 'leaderboard' && { color: '#22c55e' }]}>Board</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('history')} style={styles.tabItem}>
+          <Ionicons name={screen === 'history' ? 'time' : 'time-outline'} size={20} color={screen === 'history' ? '#22c55e' : '#71717a'} />
+          <Text style={[styles.tabLabel, screen === 'history' && { color: '#22c55e' }]}>History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setScreen('plan')} style={styles.tabItem}>
+          <Ionicons name={screen === 'plan' ? 'map' : 'map-outline'} size={20} color={screen === 'plan' ? '#22c55e' : '#71717a'} />
+          <Text style={[styles.tabLabel, screen === 'plan' && { color: '#22c55e' }]}>Plan</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('profile')} style={styles.tabItem}>
           <Ionicons name={screen === 'profile' ? 'person' : 'person-outline'} size={20} color={screen === 'profile' ? '#22c55e' : '#71717a'} />
@@ -769,6 +1013,15 @@ function AppInner() {
                   <View style={styles.runModalLiveDot} />
                   <Text style={styles.runModalLiveText}>RECORDING</Text>
                 </View>
+
+                {liveSpeedWarning && (
+                  <View style={styles.runModalWarning}>
+                    <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+                    <Text style={styles.runModalWarningText}>
+                      Too fast for running — this part isn&apos;t being counted
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.runModalCenter}>
                   <Text style={styles.runModalTime}>{mins}:{secs}</Text>
@@ -807,6 +1060,69 @@ function AppInner() {
               </>
             );
           })()}
+        </SafeAreaView>
+      </Modal>
+
+      {/* RUN DETAIL MODAL */}
+      <Modal animationType="slide" visible={isLoadingRunDetail || !!selectedRun} onRequestClose={() => setSelectedRun(null)}>
+        <SafeAreaView style={styles.runModalContainer}>
+          <StatusBar barStyle="light-content" />
+          <View style={styles.runModalHeader}>
+            <TouchableOpacity onPress={() => setSelectedRun(null)} style={{ position: 'absolute', left: 0 }}>
+              <Ionicons name="chevron-down" size={26} color="#71717a" />
+            </TouchableOpacity>
+            <Text style={styles.runModalLiveTextNeutral}>RUN DETAIL</Text>
+          </View>
+
+          {isLoadingRunDetail || !selectedRun ? (
+            <ActivityIndicator color="#22c55e" style={{ marginTop: 40 }} />
+          ) : (
+            <ScrollView contentContainerStyle={{ padding: 20 }}>
+              <Text style={styles.detailDate}>
+                {new Date(selectedRun.startedAt).toLocaleDateString(undefined, {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+
+              {selectedRun.flaggedSegments > 0 && (
+                <View style={[styles.runModalWarning, { marginTop: 12, marginBottom: 4 }]}>
+                  <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+                  <Text style={styles.runModalWarningText}>
+                    {selectedRun.flaggedSegments} part(s) of this run were too fast for running and weren&apos;t counted.
+                  </Text>
+                </View>
+              )}
+
+              {selectedRun.path.length > 1 ? (
+                <View style={{ marginTop: 16 }}>
+                  <LeafletMap path={selectedRun.path} height={280} />
+                </View>
+              ) : (
+                <Text style={[styles.emptyText, { marginTop: 16 }]}>No route data for this run</Text>
+              )}
+
+              <View style={[styles.statsGrid, { marginTop: 20 }]}>
+                <StatCard icon="footsteps-outline" label="Distance" value={`${formatKm(selectedRun.distanceMeters)} km`} width={screenWidth} />
+                <StatCard
+                  icon="time-outline"
+                  label="Duration"
+                  value={`${Math.floor(selectedRun.durationSec / 60)}:${(selectedRun.durationSec % 60).toString().padStart(2, '0')}`}
+                  width={screenWidth}
+                />
+                <StatCard icon="speedometer-outline" label="Avg Speed" value={`${selectedRun.avgSpeedKmh} km/h`} width={screenWidth} />
+                <StatCard icon="flash-outline" label="Max Speed" value={`${selectedRun.maxSpeedKmh} km/h`} width={screenWidth} />
+              </View>
+
+              <View style={[styles.profileCard, { marginTop: 16 }]}>
+                <Text style={{ color: '#22c55e', fontSize: 28, fontWeight: '900' }}>+{selectedRun.pointsEarned}</Text>
+                <Text style={{ color: '#71717a', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 4 }}>
+                  POINTS EARNED
+                </Text>
+              </View>
+            </ScrollView>
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -987,13 +1303,27 @@ const styles = StyleSheet.create({
     borderTopColor: '#18181b',
     backgroundColor: '#09090b',
     paddingTop: 10,
+    paddingHorizontal: 4,
   },
-  tabItem: { alignItems: 'center', gap: 4, minWidth: 70 },
+  tabItem: { flex: 1, alignItems: 'center', gap: 4 },
   tabLabel: { color: '#71717a', fontSize: 10, fontWeight: '600' },
   runModalContainer: { flex: 1, backgroundColor: '#09090b', justifyContent: 'space-between', padding: 24 },
   runModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
   runModalLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
   runModalLiveText: { color: '#ef4444', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  runModalWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.3)',
+    borderRadius: 14,
+    padding: 10,
+    marginTop: 16,
+  },
+  runModalWarningText: { color: '#f59e0b', fontSize: 11, fontWeight: '600', flexShrink: 1, textAlign: 'center' },
   runModalCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   runModalTime: { color: '#fff', fontSize: 64, fontWeight: '900', fontVariant: ['tabular-nums'] },
   runModalTimeLabel: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 2, marginTop: 4 },
@@ -1025,4 +1355,33 @@ const styles = StyleSheet.create({
     height: 60,
   },
   runModalStopText: { color: '#000', fontSize: 16, fontWeight: '900' },
+  runModalLiveTextNeutral: { color: '#71717a', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  detailDate: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  bannedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(239,68,68,0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  bannedBannerText: { color: '#ef4444', fontSize: 11, flex: 1, lineHeight: 15 },
+  viewAllLink: { color: '#22c55e', fontSize: 12, fontWeight: 'bold' },
+  planIntro: { color: '#a1a1aa', fontSize: 13, marginBottom: 20, lineHeight: 18 },
+  planDistanceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  planDistanceChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  planDistanceChipActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
+  planDistanceChipText: { color: '#71717a', fontSize: 13, fontWeight: 'bold' },
+  planDistanceChipTextActive: { color: '#000' },
+  planError: { color: '#ef4444', fontSize: 12, textAlign: 'center', marginTop: 12 },
+  planHint: { color: '#71717a', fontSize: 11, textAlign: 'center', marginTop: 12, lineHeight: 16 },
 });

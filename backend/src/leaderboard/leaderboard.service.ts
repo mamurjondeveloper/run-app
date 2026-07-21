@@ -32,6 +32,7 @@ export class LeaderboardService {
   async getLeaderboard(period: LeaderboardPeriod, limit = 50): Promise<LeaderboardEntry[]> {
     if (period === 'alltime') {
       const stats = await this.prisma.userStats.findMany({
+        where: { user: { isBanned: false } },
         orderBy: { totalPoints: 'desc' },
         take: limit,
         include: { user: { select: { username: true, avatarUrl: true } } },
@@ -57,22 +58,24 @@ export class LeaderboardService {
 
     const userIds = grouped.map((g) => g.userId);
     const users = await this.prisma.user.findMany({
-      where: { id: { in: userIds } },
+      where: { id: { in: userIds }, isBanned: false },
       select: { id: true, username: true, avatarUrl: true },
     });
     const userMap = new Map(users.map((u) => [u.id, u]));
 
-    return grouped.map((g, idx) => {
-      const user = userMap.get(g.userId);
-      return {
-        rank: idx + 1,
-        userId: g.userId,
-        username: user?.username ?? 'Unknown',
-        avatarUrl: user?.avatarUrl ?? null,
-        distanceMeters: g._sum.distanceMeters ?? 0,
-        points: g._sum.pointsEarned ?? 0,
-      };
-    });
+    return grouped
+      .filter((g) => userMap.has(g.userId))
+      .map((g, idx) => {
+        const user = userMap.get(g.userId)!;
+        return {
+          rank: idx + 1,
+          userId: g.userId,
+          username: user.username,
+          avatarUrl: user.avatarUrl,
+          distanceMeters: g._sum.distanceMeters ?? 0,
+          points: g._sum.pointsEarned ?? 0,
+        };
+      });
   }
 
   async getMyRank(userId: string, period: LeaderboardPeriod) {

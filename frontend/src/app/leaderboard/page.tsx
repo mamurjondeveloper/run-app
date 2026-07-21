@@ -24,18 +24,28 @@ const TABS: { key: Period; label: string }[] = [
   { key: 'alltime', label: 'All-time' },
 ];
 
+interface MyRank {
+  rank: number | null;
+  entry: Entry | null;
+}
+
 export default function LeaderboardPage() {
   const { user } = useAuthStore();
   const [period, setPeriod] = useState<Period>('daily');
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [myRank, setMyRank] = useState<MyRank | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchBoard = async () => {
       setLoading(true);
       try {
-        const res = await api.get(`/leaderboard?period=${period}`);
-        setEntries(res.data);
+        const [boardRes, meRes] = await Promise.all([
+          api.get(`/leaderboard?period=${period}`),
+          api.get(`/leaderboard/me?period=${period}`),
+        ]);
+        setEntries(boardRes.data);
+        setMyRank(meRes.data);
       } catch (err) {
         console.error('Failed to load leaderboard:', err);
       } finally {
@@ -44,6 +54,8 @@ export default function LeaderboardPage() {
     };
     fetchBoard();
   }, [period]);
+
+  const amIVisible = entries.some((e) => e.userId === user?.id);
 
   return (
     <div className="space-y-8 pb-12 max-w-2xl">
@@ -67,6 +79,33 @@ export default function LeaderboardPage() {
           </button>
         ))}
       </div>
+
+      {!loading && !amIVisible && myRank?.rank && myRank.entry && (
+        <div className="flex items-center gap-4 p-4 rounded-2xl border border-primary/30 bg-primary/10">
+          <div className="w-8 text-center shrink-0">
+            <span className="text-sm font-bold text-primary">{myRank.rank}</span>
+          </div>
+          <div className="h-10 w-10 rounded-full bg-primary/20 border border-primary/20 flex items-center justify-center shrink-0 text-xs font-bold text-primary overflow-hidden">
+            {myRank.entry.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`${API_URL}${myRank.entry.avatarUrl}`} alt={myRank.entry.username} className="h-full w-full object-cover" />
+            ) : (
+              myRank.entry.username.slice(0, 2).toUpperCase()
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-white truncate">
+              {myRank.entry.username} <span className="text-primary text-xs">(you)</span>
+            </div>
+            <div className="text-xs text-gray-400">{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</div>
+          </div>
+          <div className="text-primary font-bold text-sm shrink-0">{myRank.entry.points} pts</div>
+        </div>
+      )}
+
+      {!loading && !myRank?.rank && (
+        <div className="text-xs text-gray-500 italic">You haven&apos;t run in this period yet — record a run to appear on the board.</div>
+      )}
 
       {loading ? (
         <div className="space-y-2">

@@ -26,7 +26,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid username or password');
     }
 
-    return this.buildAuthResponse(user.id, user.username, user.avatarUrl);
+    return this.buildAuthResponse(user);
   }
 
   async register(username: string, pass: string) {
@@ -44,14 +44,26 @@ export class AuthService {
       },
     });
 
-    return this.buildAuthResponse(user.id, user.username, user.avatarUrl);
+    return this.buildAuthResponse(user);
   }
 
-  private buildAuthResponse(id: string, username: string, avatarUrl: string | null) {
-    const payload = { sub: id, username };
+  private buildAuthResponse(user: {
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+    isBanned: boolean;
+    bannedReason: string | null;
+  }) {
+    const payload = { sub: user.id, username: user.username };
     return {
       access_token: this.jwtService.sign(payload),
-      user: { id, username, avatarUrl },
+      user: {
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+        isBanned: user.isBanned,
+        bannedReason: user.bannedReason,
+      },
     };
   }
 
@@ -68,7 +80,13 @@ export class AuthService {
       data: username ? { username } : {},
     });
 
-    return { id: user.id, username: user.username, avatarUrl: user.avatarUrl };
+    return {
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
+      isBanned: user.isBanned,
+      bannedReason: user.bannedReason,
+    };
   }
 
   async updateAvatar(userId: string, file: Express.Multer.File) {
@@ -95,7 +113,13 @@ export class AuthService {
       data: { avatarUrl },
     });
 
-    return { id: updated.id, username: updated.username, avatarUrl: updated.avatarUrl };
+    return {
+      id: updated.id,
+      username: updated.username,
+      avatarUrl: updated.avatarUrl,
+      isBanned: updated.isBanned,
+      bannedReason: updated.bannedReason,
+    };
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
@@ -141,6 +165,8 @@ export class AuthService {
         id: true,
         username: true,
         avatarUrl: true,
+        isBanned: true,
+        bannedReason: true,
         createdAt: true,
       },
     });

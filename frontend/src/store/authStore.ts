@@ -5,6 +5,8 @@ interface User {
   id: string;
   username: string;
   avatarUrl: string | null;
+  isBanned?: boolean;
+  bannedReason?: string | null;
 }
 
 interface AuthState {

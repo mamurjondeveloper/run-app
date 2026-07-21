@@ -2,6 +2,16 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma.service';
 import { FinishRunDto, RunPointDto } from './dto/finish-run.dto';
 
+// Faster than this is not running — a bus, metro, or car. Segments implying a
+// speed above this are excluded from the distance/points calculation instead
+// of invalidating the whole run, since a runner can legitimately cross a
+// road or wait at a light mid-run.
+const MAX_RUNNING_SPEED_KMH = 40;
+// A run needs this many flagged (too-fast) runs before the account is banned
+// from submitting further runs. Kept low-ish since this is meant to catch
+// repeated, deliberate cheating, not one bad GPS fix.
+const BAN_THRESHOLD_VIOLATIONS = 5;
+
 function startOfUTCDate(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
@@ -26,31 +36,49 @@ interface ComputedRunStats {
   durationSec: number;
   avgSpeedKmh: number;
   maxSpeedKmh: number;
+  flaggedSegments: number;
 }
 
 // The server is the source of truth for run stats: it recomputes everything
 // from the raw GPS path rather than trusting numbers the client could have
 // sent directly (which would make the leaderboard trivially fakeable via a
 // bare API call, with no app or GPS involved at all).
+//
+// Each consecutive pair of points is checked individually: if the implied
+// speed for that segment is faster than running, that segment's distance is
+// dropped from the total instead of rejecting the whole run — so switching
+// to a bus for one block doesn't wipe out an otherwise-real run, but it also
+// doesn't get counted as running.
 function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
   const sorted = [...path].sort((a, b) => a.ts - b.ts);
 
   let distanceMeters = 0;
+  let flaggedSegments = 0;
+
   for (let i = 1; i < sorted.length; i++) {
-    const segment = haversineMeters(sorted[i - 1], sorted[i]);
-    // Ignore GPS noise jumps that would be physically impossible for a runner
-    if (segment < 200) {
-      distanceMeters += segment;
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    const segmentMeters = haversineMeters(prev, curr);
+    const segmentSec = (curr.ts - prev.ts) / 1000;
+
+    if (segmentMeters >= 200) {
+      // GPS noise jump (signal loss/reacquire) - neither counted nor flagged
+      continue;
     }
+
+    const impliedSpeedKmh = segmentSec > 0 ? segmentMeters / 1000 / (segmentSec / 3600) : 0;
+    if (impliedSpeedKmh > MAX_RUNNING_SPEED_KMH) {
+      flaggedSegments++;
+      continue;
+    }
+
+    distanceMeters += segmentMeters;
   }
 
   const durationSec = Math.max(0, Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000));
   const avgSpeedKmh = durationSec > 0 ? distanceMeters / 1000 / (durationSec / 3600) : 0;
   const maxSpeedKmh = sorted.reduce((max, p) => {
-    // A single bad GPS fix can report an absurd instantaneous speed; ignore
-    // anything faster than a car, not just faster than a runner, so we don't
-    // silently drop legitimate sprint bursts.
-    if (p.speedKmh && p.speedKmh < 60 && p.speedKmh > max) return p.speedKmh;
+    if (p.speedKmh && p.speedKmh <= MAX_RUNNING_SPEED_KMH && p.speedKmh > max) return p.speedKmh;
     return max;
   }, 0);
 
@@ -59,6 +87,7 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     durationSec,
     avgSpeedKmh: Math.round(avgSpeedKmh * 10) / 10,
     maxSpeedKmh: Math.round(maxSpeedKmh * 10) / 10,
+    flaggedSegments,
   };
 }
 
@@ -67,6 +96,13 @@ export class RunsService {
   constructor(private prisma: PrismaService) {}
 
   async startRun(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (user?.isBanned) {
+      throw new ForbiddenException(
+        user.bannedReason || 'Your account is suspended for repeated suspicious speed activity.',
+      );
+    }
+
     // Guard against starting a second run while one is already in progress
     const existing = await this.prisma.run.findFirst({
       where: { userId, status: 'in_progress' },
@@ -94,11 +130,10 @@ export class RunsService {
 
     const computed = computeStatsFromPath(dto.path);
     if (computed.distanceMeters <= 0) {
-      throw new BadRequestException('No movement detected in this run');
-    }
-    if (computed.avgSpeedKmh > 40) {
       throw new BadRequestException(
-        'That average speed is faster than running — this looks like it was recorded in a vehicle',
+        computed.flaggedSegments > 0
+          ? 'This entire run looked faster than running speed, so nothing could be counted.'
+          : 'No movement detected in this run',
       );
     }
 
@@ -127,6 +162,9 @@ export class RunsService {
     const streakBonus = Math.min(currentStreakDays, 30) * 5;
     const pointsEarned = Math.round(computed.distanceMeters / 100) + streakBonus;
 
+    const speedViolationCount = stats.speedViolationCount + (computed.flaggedSegments > 0 ? 1 : 0);
+    const shouldBan = speedViolationCount >= BAN_THRESHOLD_VIOLATIONS;
+
     const [updatedRun] = await this.prisma.$transaction([
       this.prisma.run.update({
         where: { id: runId },
@@ -138,6 +176,7 @@ export class RunsService {
           avgSpeedKmh: computed.avgSpeedKmh,
           maxSpeedKmh: computed.maxSpeedKmh,
           pointsEarned,
+          flaggedSegments: computed.flaggedSegments,
           path: JSON.stringify(dto.path),
         },
       }),
@@ -151,11 +190,30 @@ export class RunsService {
           currentStreakDays,
           longestStreakDays,
           lastRunDate: now,
+          speedViolationCount,
         },
       }),
+      ...(shouldBan
+        ? [
+            this.prisma.user.update({
+              where: { id: userId },
+              data: {
+                isBanned: true,
+                bannedReason: `Suspended after ${speedViolationCount} runs with speeds faster than running.`,
+              },
+            }),
+          ]
+        : []),
     ]);
 
-    return updatedRun;
+    return {
+      ...updatedRun,
+      warning:
+        computed.flaggedSegments > 0
+          ? `${computed.flaggedSegments} part(s) of this run were faster than running speed and were not counted.`
+          : null,
+      banned: shouldBan,
+    };
   }
 
   async discardRun(userId: string, runId: string) {
