@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,13 +13,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
+  Modal,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import axios from 'axios';
+import {
+  LOCATION_TASK_NAME,
+  ACTIVE_RUN_ID_KEY,
+  ACTIVE_RUN_STARTED_AT_KEY,
+  readRunPoints,
+  clearRunBuffer,
+  computeRunStats,
+  RunPoint,
+} from './locationTask';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -95,6 +106,15 @@ function AppInner() {
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [isSavingPassword, setIsSavingPassword] = useState(false);
 
+  const [isRunModalVisible, setIsRunModalVisible] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [livePoints, setLivePoints] = useState<RunPoint[]>([]);
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [isStartingRun, setIsStartingRun] = useState(false);
+  const [isFinishingRun, setIsFinishingRun] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const getApi = useCallback(() => {
     return axios.create({
       baseURL: SERVER_URL,
@@ -121,6 +141,42 @@ function AppInner() {
     };
     restoreSession();
   }, []);
+
+  // If the app was killed/relaunched mid-run, reopen the tracking screen instead
+  // of silently losing track of it.
+  useEffect(() => {
+    const restoreActiveRun = async () => {
+      const [runId, startedAt] = await Promise.all([
+        AsyncStorage.getItem(ACTIVE_RUN_ID_KEY),
+        AsyncStorage.getItem(ACTIVE_RUN_STARTED_AT_KEY),
+      ]);
+      if (runId && startedAt) {
+        setActiveRunId(runId);
+        setRunStartedAt(Number(startedAt));
+        setIsRunModalVisible(true);
+      }
+    };
+    restoreActiveRun();
+  }, []);
+
+  // While the run screen is open, poll the local point buffer (written by the
+  // background location task) so distance/time/pace stay live.
+  useEffect(() => {
+    if (!isRunModalVisible) {
+      if (pollRef.current) clearInterval(pollRef.current);
+      return;
+    }
+    const poll = async () => {
+      const points = await readRunPoints();
+      setLivePoints(points);
+      setNowTick(Date.now());
+    };
+    poll();
+    pollRef.current = setInterval(poll, 2000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [isRunModalVisible]);
 
   const fetchHome = useCallback(async () => {
     if (!token) return;
@@ -267,6 +323,113 @@ function AppInner() {
     }
   };
 
+  const handleStartRun = async () => {
+    setIsStartingRun(true);
+    try {
+      const foreground = await Location.requestForegroundPermissionsAsync();
+      if (foreground.status !== 'granted') {
+        Alert.alert('Permission needed', 'Location access is required to track your run.');
+        return;
+      }
+      const background = await Location.requestBackgroundPermissionsAsync();
+      if (background.status !== 'granted') {
+        Alert.alert(
+          'Background location needed',
+          'Please allow "Allow all the time" location access so your run keeps recording when your screen locks.',
+        );
+        return;
+      }
+
+      const res = await getApi().post('/runs/start');
+      const runId = res.data.id as string;
+      const startedAt = Date.now();
+
+      await clearRunBuffer();
+      await AsyncStorage.setItem(ACTIVE_RUN_ID_KEY, runId);
+      await AsyncStorage.setItem(ACTIVE_RUN_STARTED_AT_KEY, String(startedAt));
+
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+        accuracy: Location.Accuracy.BestForNavigation,
+        distanceInterval: 8,
+        timeInterval: 4000,
+        foregroundService: {
+          notificationTitle: 'RunApp',
+          notificationBody: 'Recording your run…',
+          notificationColor: '#22c55e',
+        },
+        showsBackgroundLocationIndicator: true,
+        pausesUpdatesAutomatically: false,
+      });
+
+      setActiveRunId(runId);
+      setRunStartedAt(startedAt);
+      setLivePoints([]);
+      setIsRunModalVisible(true);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to start run');
+    } finally {
+      setIsStartingRun(false);
+    }
+  };
+
+  const finishTracking = async () => {
+    const isTaskRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (isTaskRunning) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+  };
+
+  const handleStopRun = async () => {
+    if (!activeRunId) return;
+    setIsFinishingRun(true);
+    try {
+      await finishTracking();
+      const points = await readRunPoints();
+      const runStats = computeRunStats(points);
+
+      await getApi().patch(`/runs/${activeRunId}/finish`, {
+        ...runStats,
+        path: points,
+      });
+
+      await clearRunBuffer();
+      setActiveRunId(null);
+      setRunStartedAt(null);
+      setLivePoints([]);
+      setIsRunModalVisible(false);
+      Alert.alert('Nice run!', `${(runStats.distanceMeters / 1000).toFixed(2)} km recorded.`);
+      fetchHome();
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to save run');
+    } finally {
+      setIsFinishingRun(false);
+    }
+  };
+
+  const handleDiscardRun = () => {
+    Alert.alert('Discard run?', 'This run will not be saved.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Discard',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await finishTracking();
+            if (activeRunId) {
+              await getApi().patch(`/runs/${activeRunId}/discard`).catch(() => {});
+            }
+          } finally {
+            await clearRunBuffer();
+            setActiveRunId(null);
+            setRunStartedAt(null);
+            setLivePoints([]);
+            setIsRunModalVisible(false);
+          }
+        },
+      },
+    ]);
+  };
+
   if (isInitializing) {
     return (
       <View style={styles.loadingContainer}>
@@ -382,18 +545,26 @@ function AppInner() {
               <ActivityIndicator color="#22c55e" style={{ marginTop: 40 }} />
             ) : (
               <>
+                <TouchableOpacity
+                  style={styles.startRunButton}
+                  onPress={handleStartRun}
+                  disabled={isStartingRun}
+                >
+                  {isStartingRun ? (
+                    <ActivityIndicator color="#000" />
+                  ) : (
+                    <>
+                      <Ionicons name="play-circle" size={26} color="#000" />
+                      <Text style={styles.startRunButtonText}>Start Run</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
                 <View style={styles.statsGrid}>
                   <StatCard icon="footsteps-outline" label="Distance" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} width={screenWidth} />
                   <StatCard icon="trophy-outline" label="Points" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} />
                   <StatCard icon="speedometer-outline" label="Avg Speed" value={`${stats?.avgSpeedKmh ?? 0} km/h`} width={screenWidth} />
                   <StatCard icon="flame-outline" label="Streak" value={`${stats?.currentStreakDays ?? 0}d`} width={screenWidth} />
-                </View>
-
-                <View style={styles.noticeCard}>
-                  <Ionicons name="construct-outline" size={20} color="#22c55e" />
-                  <Text style={styles.noticeText}>
-                    Live GPS run recording is coming in the next update. For now, check your stats and the leaderboard here.
-                  </Text>
                 </View>
 
                 <Text style={styles.sectionTitle}>Recent Runs</Text>
@@ -579,6 +750,62 @@ function AppInner() {
           <Text style={[styles.tabLabel, screen === 'profile' && { color: '#22c55e' }]}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ACTIVE RUN TRACKING MODAL */}
+      <Modal animationType="slide" visible={isRunModalVisible} onRequestClose={() => {}}>
+        <SafeAreaView style={styles.runModalContainer}>
+          <StatusBar barStyle="light-content" />
+          {(() => {
+            const liveStats = computeRunStats(livePoints);
+            const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
+            const mins = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
+            const secs = (elapsedSec % 60).toString().padStart(2, '0');
+            return (
+              <>
+                <View style={styles.runModalHeader}>
+                  <View style={styles.runModalLiveDot} />
+                  <Text style={styles.runModalLiveText}>RECORDING</Text>
+                </View>
+
+                <View style={styles.runModalCenter}>
+                  <Text style={styles.runModalTime}>{mins}:{secs}</Text>
+                  <Text style={styles.runModalTimeLabel}>TIME</Text>
+
+                  <View style={styles.runModalStatsRow}>
+                    <View style={styles.runModalStat}>
+                      <Text style={styles.runModalStatValue}>{(liveStats.distanceMeters / 1000).toFixed(2)}</Text>
+                      <Text style={styles.runModalStatLabel}>KM</Text>
+                    </View>
+                    <View style={styles.runModalStat}>
+                      <Text style={styles.runModalStatValue}>{liveStats.avgSpeedKmh || 0}</Text>
+                      <Text style={styles.runModalStatLabel}>AVG KM/H</Text>
+                    </View>
+                    <View style={styles.runModalStat}>
+                      <Text style={styles.runModalStatValue}>{liveStats.maxSpeedKmh || 0}</Text>
+                      <Text style={styles.runModalStatLabel}>MAX KM/H</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.runModalActions}>
+                  <TouchableOpacity onPress={handleDiscardRun} style={styles.runModalDiscardButton} disabled={isFinishingRun}>
+                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                    <Text style={styles.runModalDiscardText}>Discard</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleStopRun} style={styles.runModalStopButton} disabled={isFinishingRun}>
+                    {isFinishingRun ? <ActivityIndicator color="#000" /> : (
+                      <>
+                        <Ionicons name="stop-circle" size={24} color="#000" />
+                        <Text style={styles.runModalStopText}>Stop & Save</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            );
+          })()}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -664,18 +891,17 @@ const styles = StyleSheet.create({
   },
   statCardValue: { color: '#fff', fontSize: 18, fontWeight: '900', marginTop: 8 },
   statCardLabel: { color: '#71717a', fontSize: 11, marginTop: 2 },
-  noticeCard: {
+  startRunButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
-    backgroundColor: 'rgba(34,197,94,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.2)',
-    borderRadius: 16,
-    padding: 14,
+    backgroundColor: '#22c55e',
+    borderRadius: 20,
+    height: 64,
     marginBottom: 20,
   },
-  noticeText: { color: '#a1a1aa', fontSize: 11, flex: 1, lineHeight: 16 },
+  startRunButtonText: { color: '#000', fontSize: 18, fontWeight: '900' },
   sectionTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
   emptyText: { color: '#71717a', fontSize: 13, fontStyle: 'italic' },
   runRow: {
@@ -761,4 +987,39 @@ const styles = StyleSheet.create({
   },
   tabItem: { alignItems: 'center', gap: 4, minWidth: 70 },
   tabLabel: { color: '#71717a', fontSize: 10, fontWeight: '600' },
+  runModalContainer: { flex: 1, backgroundColor: '#09090b', justifyContent: 'space-between', padding: 24 },
+  runModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
+  runModalLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
+  runModalLiveText: { color: '#ef4444', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  runModalCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  runModalTime: { color: '#fff', fontSize: 64, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  runModalTimeLabel: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 2, marginTop: 4 },
+  runModalStatsRow: { flexDirection: 'row', gap: 32, marginTop: 48 },
+  runModalStat: { alignItems: 'center' },
+  runModalStatValue: { color: '#22c55e', fontSize: 28, fontWeight: '900' },
+  runModalStatLabel: { color: '#71717a', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 4 },
+  runModalActions: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  runModalDiscardButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#ef4444',
+    borderRadius: 18,
+    height: 60,
+    width: 110,
+  },
+  runModalDiscardText: { color: '#ef4444', fontSize: 13, fontWeight: 'bold' },
+  runModalStopButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#22c55e',
+    borderRadius: 18,
+    height: 60,
+  },
+  runModalStopText: { color: '#000', fontSize: 16, fontWeight: '900' },
 });

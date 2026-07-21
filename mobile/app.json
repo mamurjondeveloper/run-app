@@ -32,6 +32,14 @@
         {
           "photosPermission": "RunApp accesses your photos so you can set a profile picture."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "RunApp needs your location to track your runs, including while your screen is locked.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
       ]
     ]
   }
