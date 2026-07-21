@@ -463,13 +463,24 @@ function AppInner() {
         Alert.alert('Permission needed', 'Location access is required to track your run.');
         return;
       }
-      const background = await Location.requestBackgroundPermissionsAsync();
-      if (background.status !== 'granted') {
-        Alert.alert(
-          'Background location needed',
-          'Please allow "Allow all the time" location access so your run keeps recording when your screen locks.',
-        );
-        return;
+
+      const existingBackground = await Location.getBackgroundPermissionsAsync();
+      if (existingBackground.status !== 'granted') {
+        // Android 11+ won't grant "Allow all the time" from a simple popup - it
+        // sends the user into system Settings instead. Explain that up front
+        // so it doesn't look like the app just crashed/kicked them out.
+        await new Promise<void>((resolve) => {
+          Alert.alert(
+            'One more step',
+            'On the next screen, choose "Allow all the time" for Location so your run keeps recording when your screen is locked. This may open Settings — after granting it there, come back and tap Start Run again.',
+            [{ text: 'Continue', onPress: () => resolve() }],
+          );
+        });
+
+        const background = await Location.requestBackgroundPermissionsAsync();
+        if (background.status !== 'granted') {
+          return;
+        }
       }
 
       const res = await getApi().post('/runs/start', plannedRoute
