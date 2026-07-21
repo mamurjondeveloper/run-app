@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# .env.production only holds the public API URL (no secrets) and must be
+# committed, or the production build silently falls back to localhost.
+!.env.production
 
 # vercel
 .vercel
