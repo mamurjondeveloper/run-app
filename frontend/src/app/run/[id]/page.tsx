@@ -7,8 +7,10 @@ import api from '@/services/api';
 import { isAxiosError } from 'axios';
 import { Loader2, Square, Trash2, AlertTriangle, Volume2, VolumeX, Mountain } from 'lucide-react';
 import { RouteGuide, haversineMeters } from '@/lib/routeGuidance';
+import { useAuthStore } from '@/store/authStore';
 
 const RouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 const MAX_RUNNING_SPEED_KMH = 40;
 
@@ -63,8 +65,10 @@ function formatPace(avgSpeedKmh: number): string {
 export default function LiveRunPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const { user } = useAuthStore();
   const runId = params.id;
   const storageKey = `live-run-${runId}`;
+  const avatarUrl = user?.avatarUrl ? `${API_URL}${user.avatarUrl}` : null;
 
   const [runMeta, setRunMeta] = useState<RunMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -313,6 +317,7 @@ export default function LiveRunPage() {
           path={livePath}
           secondaryPath={runMeta.plannedRoutePath ?? undefined}
           followLatest
+          avatarUrl={avatarUrl}
           height={300}
         />
       ) : runMeta.plannedRoutePath ? (

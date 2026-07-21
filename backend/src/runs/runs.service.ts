@@ -12,6 +12,11 @@ const MAX_RUNNING_SPEED_KMH = 40;
 // from submitting further runs. Kept low-ish since this is meant to catch
 // repeated, deliberate cheating, not one bad GPS fix.
 const BAN_THRESHOLD_VIOLATIONS = 5;
+// A gap this long between two consecutive points means tracking was almost
+// certainly paused (e.g. a browser tab backgrounded/suspended) rather than
+// the runner covering that ground in one straight line — excluded from the
+// distance/elevation totals the same way an implausible speed segment is.
+const MAX_GAP_SECONDS = 30;
 
 function startOfUTCDate(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -65,8 +70,9 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     const segmentMeters = haversineMeters(prev, curr);
     const segmentSec = (curr.ts - prev.ts) / 1000;
 
-    if (segmentMeters >= 200) {
-      // GPS noise jump (signal loss/reacquire) - neither counted nor flagged
+    if (segmentMeters >= 200 || segmentSec > MAX_GAP_SECONDS) {
+      // GPS noise jump, or a tracking gap (e.g. backgrounded tab) - neither
+      // counted nor flagged, since we have no real data for what happened
       continue;
     }
 
