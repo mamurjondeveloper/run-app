@@ -12,6 +12,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  PermissionsAndroid,
   useWindowDimensions,
   Modal,
 } from 'react-native';
@@ -481,6 +482,13 @@ function AppInner() {
         if (background.status !== 'granted') {
           return;
         }
+      }
+
+      // Android 13+ requires this before showing ANY notification, including
+      // the "Recording your run…" one the background tracking foreground
+      // service depends on. Older Android versions auto-resolve as granted.
+      if (Platform.OS === 'android' && Platform.Version >= 33) {
+        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
       }
 
       const res = await getApi().post('/runs/start', plannedRoute

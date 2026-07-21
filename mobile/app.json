@@ -12,7 +12,8 @@
     "android": {
       "package": "com.xisd.run",
       "permissions": [
-        "INTERNET"
+        "INTERNET",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0a0f0a",
