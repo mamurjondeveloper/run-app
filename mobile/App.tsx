@@ -385,19 +385,22 @@ function AppInner() {
     try {
       await finishTracking();
       const points = await readRunPoints();
-      const runStats = computeRunStats(points);
+      if (points.length < 2) {
+        Alert.alert('Too short', 'Not enough GPS points were recorded to save this run.');
+        return;
+      }
 
-      await getApi().patch(`/runs/${activeRunId}/finish`, {
-        ...runStats,
-        path: points,
-      });
+      // Only the raw path is sent — the server recomputes distance/speed from
+      // it itself, since trusting client-submitted numbers directly would
+      // make the leaderboard trivially fakeable.
+      const res = await getApi().patch(`/runs/${activeRunId}/finish`, { path: points });
 
       await clearRunBuffer();
       setActiveRunId(null);
       setRunStartedAt(null);
       setLivePoints([]);
       setIsRunModalVisible(false);
-      Alert.alert('Nice run!', `${(runStats.distanceMeters / 1000).toFixed(2)} km recorded.`);
+      Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.`);
       fetchHome();
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.message || 'Failed to save run');

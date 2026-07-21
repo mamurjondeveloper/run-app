@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { FinishRunDto } from './dto/finish-run.dto';
+import { FinishRunDto, RunPointDto } from './dto/finish-run.dto';
 
 function startOfUTCDate(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -9,6 +9,57 @@ function startOfUTCDate(date: Date): Date {
 function daysBetween(a: Date, b: Date): number {
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
   return Math.round((startOfUTCDate(a).getTime() - startOfUTCDate(b).getTime()) / MS_PER_DAY);
+}
+
+function haversineMeters(a: RunPointDto, b: RunPointDto): number {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
+}
+
+interface ComputedRunStats {
+  distanceMeters: number;
+  durationSec: number;
+  avgSpeedKmh: number;
+  maxSpeedKmh: number;
+}
+
+// The server is the source of truth for run stats: it recomputes everything
+// from the raw GPS path rather than trusting numbers the client could have
+// sent directly (which would make the leaderboard trivially fakeable via a
+// bare API call, with no app or GPS involved at all).
+function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
+  const sorted = [...path].sort((a, b) => a.ts - b.ts);
+
+  let distanceMeters = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const segment = haversineMeters(sorted[i - 1], sorted[i]);
+    // Ignore GPS noise jumps that would be physically impossible for a runner
+    if (segment < 200) {
+      distanceMeters += segment;
+    }
+  }
+
+  const durationSec = Math.max(0, Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000));
+  const avgSpeedKmh = durationSec > 0 ? distanceMeters / 1000 / (durationSec / 3600) : 0;
+  const maxSpeedKmh = sorted.reduce((max, p) => {
+    // A single bad GPS fix can report an absurd instantaneous speed; ignore
+    // anything faster than a car, not just faster than a runner, so we don't
+    // silently drop legitimate sprint bursts.
+    if (p.speedKmh && p.speedKmh < 60 && p.speedKmh > max) return p.speedKmh;
+    return max;
+  }, 0);
+
+  return {
+    distanceMeters: Math.round(distanceMeters),
+    durationSec,
+    avgSpeedKmh: Math.round(avgSpeedKmh * 10) / 10,
+    maxSpeedKmh: Math.round(maxSpeedKmh * 10) / 10,
+  };
 }
 
 @Injectable()
@@ -41,6 +92,16 @@ export class RunsService {
       throw new BadRequestException('Run has already been finished or discarded');
     }
 
+    const computed = computeStatsFromPath(dto.path);
+    if (computed.distanceMeters <= 0) {
+      throw new BadRequestException('No movement detected in this run');
+    }
+    if (computed.avgSpeedKmh > 40) {
+      throw new BadRequestException(
+        'That average speed is faster than running — this looks like it was recorded in a vehicle',
+      );
+    }
+
     const stats = await this.prisma.userStats.upsert({
       where: { userId },
       create: { userId },
@@ -64,7 +125,7 @@ export class RunsService {
     const longestStreakDays = Math.max(stats.longestStreakDays, currentStreakDays);
 
     const streakBonus = Math.min(currentStreakDays, 30) * 5;
-    const pointsEarned = Math.round(dto.distanceMeters / 100) + streakBonus;
+    const pointsEarned = Math.round(computed.distanceMeters / 100) + streakBonus;
 
     const [updatedRun] = await this.prisma.$transaction([
       this.prisma.run.update({
@@ -72,21 +133,21 @@ export class RunsService {
         data: {
           status: 'completed',
           endedAt: now,
-          distanceMeters: dto.distanceMeters,
-          durationSec: dto.durationSec,
-          avgSpeedKmh: dto.avgSpeedKmh,
-          maxSpeedKmh: dto.maxSpeedKmh,
+          distanceMeters: computed.distanceMeters,
+          durationSec: computed.durationSec,
+          avgSpeedKmh: computed.avgSpeedKmh,
+          maxSpeedKmh: computed.maxSpeedKmh,
           pointsEarned,
-          path: dto.path ? JSON.stringify(dto.path) : null,
+          path: JSON.stringify(dto.path),
         },
       }),
       this.prisma.userStats.update({
         where: { userId },
         data: {
-          totalDistanceM: stats.totalDistanceM + dto.distanceMeters,
+          totalDistanceM: stats.totalDistanceM + computed.distanceMeters,
           totalRuns: stats.totalRuns + 1,
           totalPoints: stats.totalPoints + pointsEarned,
-          bestMaxSpeedKmh: Math.max(stats.bestMaxSpeedKmh, dto.maxSpeedKmh),
+          bestMaxSpeedKmh: Math.max(stats.bestMaxSpeedKmh, computed.maxSpeedKmh),
           currentStreakDays,
           longestStreakDays,
           lastRunDate: now,

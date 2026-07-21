@@ -1,7 +1,7 @@
-import { IsArray, IsNumber, IsOptional, Min, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsNumber, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-class RunPointDto {
+export class RunPointDto {
   @IsNumber()
   lat: number;
 
@@ -17,25 +17,14 @@ class RunPointDto {
 }
 
 export class FinishRunDto {
-  @IsNumber()
-  @Min(0)
-  distanceMeters: number;
-
-  @IsNumber()
-  @Min(0)
-  durationSec: number;
-
-  @IsNumber()
-  @Min(0)
-  avgSpeedKmh: number;
-
-  @IsNumber()
-  @Min(0)
-  maxSpeedKmh: number;
-
-  @IsOptional()
+  // The GPS path is the only source of truth for a run's stats — the server
+  // recomputes distance/duration/speed from these points itself rather than
+  // trusting client-submitted numbers, since those would otherwise be
+  // trivial to fake (anyone could POST a huge distanceMeters directly and
+  // top the leaderboard without ever running).
   @IsArray()
+  @ArrayMinSize(2, { message: 'A run needs at least 2 GPS points to be recorded' })
   @ValidateNested({ each: true })
   @Type(() => RunPointDto)
-  path?: RunPointDto[];
+  path: RunPointDto[];
 }
