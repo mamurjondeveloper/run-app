@@ -43,6 +43,12 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "color": "#22c55e"
+        }
+      ],
       "./plugins/withPictureInPicture.js"
     ]
   }

@@ -152,9 +152,34 @@ export class AuthService {
       where: { userId, status: 'completed' },
       _avg: { avgSpeedKmh: true },
     });
+
+    const now = new Date();
+    const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setUTCDate(startOfWeek.getUTCDate() - 6);
+    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+    const [todayAgg, weekAgg, monthAgg] = await Promise.all([
+      this.prisma.run.aggregate({
+        where: { userId, status: 'completed', startedAt: { gte: startOfDay } },
+        _sum: { distanceMeters: true },
+      }),
+      this.prisma.run.aggregate({
+        where: { userId, status: 'completed', startedAt: { gte: startOfWeek } },
+        _sum: { distanceMeters: true },
+      }),
+      this.prisma.run.aggregate({
+        where: { userId, status: 'completed', startedAt: { gte: startOfMonth } },
+        _sum: { distanceMeters: true },
+      }),
+    ]);
+
     return {
       ...stats,
       avgSpeedKmh: Math.round((agg._avg.avgSpeedKmh ?? 0) * 10) / 10,
+      todayDistanceM: todayAgg._sum.distanceMeters ?? 0,
+      weekDistanceM: weekAgg._sum.distanceMeters ?? 0,
+      monthDistanceM: monthAgg._sum.distanceMeters ?? 0,
     };
   }
 

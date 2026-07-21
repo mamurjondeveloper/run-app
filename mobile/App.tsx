@@ -12,7 +12,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  PermissionsAndroid,
   useWindowDimensions,
   Modal,
 } from 'react-native';
@@ -35,6 +34,13 @@ import {
 } from './locationTask';
 import LeafletMap from './LeafletMap';
 import LiveLeafletMap, { LiveLeafletMapHandle } from './LiveLeafletMap';
+import {
+  setupNotificationChannels,
+  requestNotificationPermission,
+  updateRunNotification,
+  dismissRunNotification,
+  refreshDailyRecapNotification,
+} from './notifications';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -67,6 +73,9 @@ interface Stats {
   currentStreakDays: number;
   longestStreakDays: number;
   avgSpeedKmh: number;
+  todayDistanceM: number;
+  weekDistanceM: number;
+  monthDistanceM: number;
 }
 
 interface Run {
@@ -172,6 +181,7 @@ function AppInner() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveMapRef = useRef<LiveLeafletMapHandle>(null);
   const sentPointCountRef = useRef(0);
+  const lastNotifUpdateRef = useRef(0);
 
   const getApi = useCallback(() => {
     return axios.create({
@@ -198,6 +208,10 @@ function AppInner() {
       }
     };
     restoreSession();
+  }, []);
+
+  useEffect(() => {
+    setupNotificationChannels();
   }, []);
 
   // If the app was killed/relaunched mid-run, reopen the tracking screen instead
@@ -235,6 +249,14 @@ function AppInner() {
         }
         sentPointCountRef.current = points.length;
       }
+
+      const now = Date.now();
+      if (now - lastNotifUpdateRef.current > 10000) {
+        lastNotifUpdateRef.current = now;
+        const liveStats = computeRunStats(points);
+        const elapsedSec = runStartedAt ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
+        updateRunNotification(liveStats.distanceMeters, elapsedSec, liveStats.avgSpeedKmh || 0);
+      }
     };
     poll();
     pollRef.current = setInterval(poll, 2000);
@@ -253,6 +275,7 @@ function AppInner() {
       ]);
       setStats(statsRes.data);
       setRecentRuns(runsRes.data);
+      refreshDailyRecapNotification(statsRes.data);
     } catch {
       // Non-critical
     } finally {
@@ -484,12 +507,9 @@ function AppInner() {
         }
       }
 
-      // Android 13+ requires this before showing ANY notification, including
-      // the "Recording your run…" one the background tracking foreground
-      // service depends on. Older Android versions auto-resolve as granted.
-      if (Platform.OS === 'android' && Platform.Version >= 33) {
-        await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
-      }
+      // Needed both for the "Recording your run…" foreground-service
+      // notification and the live-stats notification updated during tracking.
+      await requestNotificationPermission();
 
       const res = await getApi().post('/runs/start', plannedRoute
         ? { plannedRoutePath: plannedRoute.path, plannedDistanceMeters: plannedRoute.distanceMeters }
@@ -552,6 +572,7 @@ function AppInner() {
       const res = await getApi().patch(`/runs/${activeRunId}/finish`, { path: points });
 
       await clearRunBuffer();
+      await dismissRunNotification();
       setActiveRunId(null);
       setRunStartedAt(null);
       setLivePoints([]);
@@ -594,6 +615,7 @@ function AppInner() {
             }
           } finally {
             await clearRunBuffer();
+            await dismissRunNotification();
             setActiveRunId(null);
             setRunStartedAt(null);
             setLivePoints([]);
