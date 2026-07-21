@@ -1,14 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import api from '@/services/api';
 import { isAxiosError } from 'axios';
-import { Map as MapIcon, Loader2, Navigation } from 'lucide-react';
+import { Map as MapIcon, Loader2, Navigation, LocateFixed, MapPin } from 'lucide-react';
 
 const RouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
+const LocationPicker = dynamic(() => import('@/components/LocationPicker'), { ssr: false });
 
 const DISTANCES = [1, 2, 3, 5, 10];
+const DEFAULT_CENTER = { lat: 41.2995, lng: 69.2401 };
+const GEO_OPTIONS: PositionOptions = { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false };
 
 interface SuggestedRoute {
   distanceMeters: number;
@@ -23,45 +26,64 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function geoErrorMessage(err: GeolocationPositionError): string {
+  if (err.code === err.PERMISSION_DENIED) {
+    return 'Location permission was denied. Pick your starting point on the map below instead.';
+  }
+  if (err.code === err.TIMEOUT) {
+    return "Location lookup timed out — this is common on desktop computers. Pick your starting point on the map below instead.";
+  }
+  return "Couldn't determine your location automatically (common on desktop computers without Wi-Fi). Pick your starting point on the map below instead.";
+}
+
 export default function PlanRunPage() {
   const [targetKm, setTargetKm] = useState(5);
+  const [point, setPoint] = useState(DEFAULT_CENTER);
+  const [hasPickedPoint, setHasPickedPoint] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [route, setRoute] = useState<SuggestedRoute | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [locateNotice, setLocateNotice] = useState<string | null>(null);
 
-  const handleSuggest = () => {
-    setError(null);
-    setRoute(null);
-
+  const locate = () => {
     if (!navigator.geolocation) {
-      setError('Your browser does not support location access.');
+      setLocateNotice('Your browser does not support automatic location — pick your starting point on the map below.');
       return;
     }
-
     setIsLocating(true);
+    setLocateNotice(null);
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         setIsLocating(false);
-        setIsSuggesting(true);
-        try {
-          const res = await api.post('/routes/suggest', {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            targetKm,
-          });
-          setRoute(res.data);
-        } catch (err) {
-          setError(getErrorMessage(err, 'Could not generate a route near you'));
-        } finally {
-          setIsSuggesting(false);
-        }
+        setHasPickedPoint(true);
+        setPoint({ lat: position.coords.latitude, lng: position.coords.longitude });
       },
-      () => {
+      (err) => {
         setIsLocating(false);
-        setError('Location access was denied. Please allow location access and try again.');
+        setLocateNotice(geoErrorMessage(err));
       },
+      GEO_OPTIONS,
     );
+  };
+
+  useEffect(() => {
+    locate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSuggest = async () => {
+    setError(null);
+    setRoute(null);
+    setIsSuggesting(true);
+    try {
+      const res = await api.post('/routes/suggest', { lat: point.lat, lng: point.lng, targetKm });
+      setRoute(res.data);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not generate a route near that point'));
+    } finally {
+      setIsSuggesting(false);
+    }
   };
 
   return (
@@ -70,7 +92,7 @@ export default function PlanRunPage() {
         <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl flex items-center gap-3">
           <MapIcon className="h-8 w-8 text-primary" /> Plan a Run
         </h1>
-        <p className="text-gray-400 text-sm mt-1">Pick a distance and get a loop route near you to follow.</p>
+        <p className="text-gray-400 text-sm mt-1">Pick a distance and get a loop route to follow.</p>
       </div>
 
       <div className="glass-panel p-6 rounded-3xl space-y-5">
@@ -91,20 +113,48 @@ export default function PlanRunPage() {
           </div>
         </div>
 
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5" /> Starting Point
+            </div>
+            <button
+              onClick={locate}
+              disabled={isLocating}
+              className="text-xs font-semibold text-primary hover:text-primary-hover flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {isLocating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LocateFixed className="h-3.5 w-3.5" />}
+              Use my location
+            </button>
+          </div>
+          <LocationPicker
+            value={point}
+            onChange={(p) => {
+              setHasPickedPoint(true);
+              setPoint(p);
+            }}
+            height={220}
+          />
+          <p className="text-xs text-gray-500 mt-2">
+            {hasPickedPoint ? 'Tap the map to move your starting point.' : 'Tap the map to set your starting point.'}
+          </p>
+          {locateNotice && <p className="text-amber-400 text-xs mt-2">{locateNotice}</p>}
+        </div>
+
         <button
           onClick={handleSuggest}
-          disabled={isLocating || isSuggesting}
+          disabled={isSuggesting}
           className="w-full bg-primary hover:bg-primary-hover text-bg-dark font-bold py-3.5 rounded-2xl flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50 text-sm"
         >
-          {isLocating || isSuggesting ? (
+          {isSuggesting ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" />
-              {isLocating ? 'Getting your location…' : 'Finding a route…'}
+              Finding a route…
             </>
           ) : (
             <>
               <Navigation className="h-5 w-5" />
-              Suggest a {targetKm} km route near me
+              Suggest a {targetKm} km route
             </>
           )}
         </button>

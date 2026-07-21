@@ -310,7 +310,10 @@ function AppInner() {
         setPlanError('Location access is needed to suggest a route near you.');
         return;
       }
-      const position = await Location.getCurrentPositionAsync({});
+      const position = await Promise.race([
+        Location.getCurrentPositionAsync({}),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('location_timeout')), 10000)),
+      ]);
       setIsLocatingForPlan(false);
       setIsSuggestingRoute(true);
       const res = await getApi().post('/routes/suggest', {
@@ -320,7 +323,11 @@ function AppInner() {
       });
       setSuggestedRoute(res.data);
     } catch (err: any) {
-      setPlanError(err.response?.data?.message || 'Could not generate a route near you');
+      if (err?.message === 'location_timeout') {
+        setPlanError('Location lookup timed out. Make sure GPS is enabled and try again.');
+      } else {
+        setPlanError(err.response?.data?.message || 'Could not generate a route near you');
+      }
     } finally {
       setIsLocatingForPlan(false);
       setIsSuggestingRoute(false);
