@@ -57,6 +57,7 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
   let distanceMeters = 0;
   let flaggedSegments = 0;
   let elevationGainM = 0;
+  let maxSegmentSpeedKmh = 0;
 
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1];
@@ -76,6 +77,9 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     }
 
     distanceMeters += segmentMeters;
+    if (impliedSpeedKmh > maxSegmentSpeedKmh) {
+      maxSegmentSpeedKmh = impliedSpeedKmh;
+    }
     // Altitude is best-effort (many devices/browsers never report it) - only
     // count a gain when both points in the segment actually have a reading.
     if (typeof prev.alt === 'number' && typeof curr.alt === 'number' && curr.alt > prev.alt) {
@@ -85,10 +89,14 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
 
   const durationSec = Math.max(0, Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000));
   const avgSpeedKmh = durationSec > 0 ? distanceMeters / 1000 / (durationSec / 3600) : 0;
-  const maxSpeedKmh = sorted.reduce((max, p) => {
+  // Prefer device-reported instantaneous speed where available (more accurate
+  // than a segment average), but fall back to the segment-implied speed above
+  // so this stat isn't 0 just because a browser/device never reports coords.speed.
+  const maxReportedSpeedKmh = sorted.reduce((max, p) => {
     if (p.speedKmh && p.speedKmh <= MAX_RUNNING_SPEED_KMH && p.speedKmh > max) return p.speedKmh;
     return max;
   }, 0);
+  const maxSpeedKmh = Math.max(maxReportedSpeedKmh, maxSegmentSpeedKmh);
 
   return {
     distanceMeters: Math.round(distanceMeters),

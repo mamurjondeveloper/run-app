@@ -17,6 +17,7 @@ interface LivePoint {
   lng: number;
   ts: number;
   alt?: number;
+  speedKmh?: number;
 }
 
 interface RunMeta {
@@ -154,14 +155,19 @@ export default function LiveRunPage() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         setTrackError(null);
+        const speedKmh =
+          typeof position.coords.speed === 'number' && position.coords.speed >= 0
+            ? Math.round(position.coords.speed * 3.6 * 10) / 10
+            : undefined;
         const point: LivePoint = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           ts: Date.now(),
           alt: position.coords.altitude ?? undefined,
+          speedKmh,
         };
-        if (typeof position.coords.speed === 'number' && position.coords.speed >= 0) {
-          setCurrentSpeedKmh(Math.round(position.coords.speed * 3.6 * 10) / 10);
+        if (speedKmh !== undefined) {
+          setCurrentSpeedKmh(speedKmh);
         }
         setLivePath((prev) => {
           const next = [...prev, point];
