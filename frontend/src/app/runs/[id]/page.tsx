@@ -4,9 +4,18 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import api from '@/services/api';
-import { ArrowLeft, Footprints, Gauge, Clock, Zap, AlertTriangle, Mountain } from 'lucide-react';
+import { ArrowLeft, Footprints, Gauge, Clock, Zap, AlertTriangle, Mountain, TrendingUp } from 'lucide-react';
+import RunChart from '@/components/RunChart';
+import { haversineMeters } from '@/lib/routeGuidance';
 
 const RouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
+
+interface RunPathPoint {
+  lat: number;
+  lng: number;
+  ts: number;
+  alt?: number;
+}
 
 interface RunDetail {
   id: string;
@@ -17,10 +26,39 @@ interface RunDetail {
   maxSpeedKmh: number;
   pointsEarned: number;
   flaggedSegments: number;
-  path: { lat: number; lng: number }[];
+  path: RunPathPoint[];
   plannedRoutePath: { lat: number; lng: number }[] | null;
   plannedDistanceMeters: number | null;
   elevationGainM: number;
+}
+
+const MAX_RUNNING_SPEED_KMH = 40;
+
+function buildChartSeries(path: RunPathPoint[]) {
+  const speedSeries: { x: number; y: number }[] = [];
+  const elevationSeries: { x: number; y: number }[] = [];
+  let cumulativeKm = 0;
+  let hasElevation = false;
+
+  const sorted = [...path].sort((a, b) => a.ts - b.ts);
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1];
+    const curr = sorted[i];
+    const segMeters = haversineMeters(prev, curr);
+    const segSec = (curr.ts - prev.ts) / 1000;
+    if (segMeters >= 200) continue; // GPS noise gap — same threshold the backend uses
+
+    cumulativeKm += segMeters / 1000;
+    const speedKmh = segSec > 0 ? segMeters / 1000 / (segSec / 3600) : 0;
+    speedSeries.push({ x: cumulativeKm, y: Math.min(speedKmh, MAX_RUNNING_SPEED_KMH) });
+
+    if (typeof curr.alt === 'number') {
+      hasElevation = true;
+      elevationSeries.push({ x: cumulativeKm, y: curr.alt });
+    }
+  }
+
+  return { speedSeries, elevationSeries: hasElevation ? elevationSeries : [] };
 }
 
 export default function RunDetailPage() {
@@ -115,6 +153,41 @@ export default function RunDetailPage() {
         <Stat icon={Zap} label="Max Speed" value={`${run.maxSpeedKmh} km/h`} />
         {run.elevationGainM > 0 && <Stat icon={Mountain} label="Elevation Gain" value={`${Math.round(run.elevationGainM)} m`} />}
       </div>
+
+      {(() => {
+        if (run.path.length < 3) return null;
+        const { speedSeries, elevationSeries } = buildChartSeries(run.path);
+        return (
+          <>
+            {speedSeries.length > 1 && (
+              <div className="glass-panel p-6 rounded-3xl">
+                <div className="flex items-center gap-2 text-sm font-bold text-white mb-4">
+                  <TrendingUp className="h-4 w-4 text-primary" /> Speed over distance
+                </div>
+                <RunChart
+                  points={speedSeries}
+                  color="#22c55e"
+                  yFormatter={(v) => `${v.toFixed(0)}`}
+                  xFormatter={(v) => `${v.toFixed(1)} km`}
+                />
+              </div>
+            )}
+            {elevationSeries.length > 1 && (
+              <div className="glass-panel p-6 rounded-3xl">
+                <div className="flex items-center gap-2 text-sm font-bold text-white mb-4">
+                  <Mountain className="h-4 w-4 text-primary" /> Elevation profile
+                </div>
+                <RunChart
+                  points={elevationSeries}
+                  color="#a78bfa"
+                  yFormatter={(v) => `${v.toFixed(0)}m`}
+                  xFormatter={(v) => `${v.toFixed(1)} km`}
+                />
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       <div className="glass-panel p-6 rounded-3xl text-center">
         <div className="text-3xl font-black text-primary">+{run.pointsEarned}</div>
