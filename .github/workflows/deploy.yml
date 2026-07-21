@@ -1,0 +1,27 @@
+name: Deploy Web (backend + frontend)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'ecosystem.config.js'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into server and run deploy script
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          # The remote authorized_keys entry for this key forces it to run
+          # /root/deploy-run.sh regardless of what command is sent here —
+          # this line just needs to be non-empty.
+          script: echo "triggering deploy"

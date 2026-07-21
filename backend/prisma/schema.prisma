@@ -1,0 +1,55 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  passwordHash String
+  avatarUrl    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  runs         Run[]
+  stats        UserStats?
+}
+
+model Run {
+  id             String    @id @default(uuid())
+  userId         String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  status         String    @default("in_progress") // in_progress | completed | discarded
+  distanceMeters Float     @default(0)
+  durationSec    Int       @default(0)
+  avgSpeedKmh    Float     @default(0)
+  maxSpeedKmh    Float     @default(0)
+  pointsEarned   Int       @default(0)
+  path           String? // JSON-encoded [{lat,lng,ts,speedKmh}, ...]
+  createdAt      DateTime  @default(now())
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+  @@index([status, startedAt])
+}
+
+// Denormalized per-user totals, updated whenever a run completes.
+model UserStats {
+  userId            String    @id
+  totalDistanceM    Float     @default(0)
+  totalRuns         Int       @default(0)
+  totalPoints       Int       @default(0)
+  bestMaxSpeedKmh   Float     @default(0)
+  currentStreakDays Int       @default(0)
+  longestStreakDays Int       @default(0)
+  lastRunDate       DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

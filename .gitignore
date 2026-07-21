@@ -1,0 +1,36 @@
+# Dependency folders
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# NestJS build output
+dist/
+backend/dist/
+
+# SQLite databases and WAL files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+
+# Local media uploads (keep directory structures but ignore files)
+backend/uploads/avatars/*
+!backend/uploads/avatars/.gitkeep
+
+# Environment variables
+.env
+.env.local
+backend/.env
+
+# Expo / mobile
+mobile/.expo/
+mobile/android/
+mobile/ios/
+
+# System files
+.DS_Store
+Thumbs.db
