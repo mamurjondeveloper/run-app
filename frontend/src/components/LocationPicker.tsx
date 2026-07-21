@@ -1,6 +1,7 @@
 'use client';
 
-import { MapContainer, TileLayer, CircleMarker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 export interface MapPoint {
@@ -13,6 +14,16 @@ interface LocationPickerProps {
   onChange: (point: MapPoint) => void;
   height?: number;
 }
+
+const pinIcon = L.divIcon({
+  className: '',
+  html: `<svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 0C6.716 0 0 6.716 0 15c0 10.5 15 25 15 25s15-14.5 15-25C30 6.716 23.284 0 15 0z" fill="#3b82f6"/>
+    <circle cx="15" cy="15" r="5.5" fill="#fff"/>
+  </svg>`,
+  iconSize: [30, 40],
+  iconAnchor: [15, 40],
+});
 
 function ClickHandler({ onChange }: { onChange: (point: MapPoint) => void }) {
   useMapEvents({
@@ -30,17 +41,11 @@ export default function LocationPicker({ value, onChange, height = 260 }: Locati
       zoom={13}
       style={{ height, width: '100%', borderRadius: 24 }}
       scrollWheelZoom={false}
+      attributionControl={false}
     >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <ClickHandler onChange={onChange} />
-      <CircleMarker
-        center={[value.lat, value.lng]}
-        radius={9}
-        pathOptions={{ color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1, weight: 2 }}
-      />
+      <Marker position={[value.lat, value.lng]} icon={pinIcon} />
     </MapContainer>
   );
 }

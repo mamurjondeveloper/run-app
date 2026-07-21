@@ -31,11 +31,9 @@ export default function RouteMap({ path, color = '#22c55e', height = 300, showEn
       zoom={15}
       style={{ height, width: '100%', borderRadius: 24 }}
       scrollWheelZoom={false}
+      attributionControl={false}
     >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       {secondaryPositions && (
         <Polyline positions={secondaryPositions} pathOptions={{ color: '#a1a1aa', weight: 3, dashArray: '6 8' }} />
       )}
