@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -32,6 +33,7 @@ import {
   RunPoint,
 } from './locationTask';
 import LeafletMap from './LeafletMap';
+import LiveLeafletMap, { LiveLeafletMapHandle } from './LiveLeafletMap';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -162,10 +164,13 @@ function AppInner() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [livePoints, setLivePoints] = useState<RunPoint[]>([]);
+  const [activePlannedRoute, setActivePlannedRoute] = useState<SuggestedRoute | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [isStartingRun, setIsStartingRun] = useState(false);
   const [isFinishingRun, setIsFinishingRun] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const liveMapRef = useRef<LiveLeafletMapHandle>(null);
+  const sentPointCountRef = useRef(0);
 
   const getApi = useCallback(() => {
     return axios.create({
@@ -223,6 +228,12 @@ function AppInner() {
       setLivePoints(points);
       setNowTick(Date.now());
       setLiveSpeedWarning(lastSegmentTooFast(points));
+      if (points.length > sentPointCountRef.current) {
+        for (let i = sentPointCountRef.current; i < points.length; i++) {
+          liveMapRef.current?.addPoint({ lat: points[i].lat, lng: points[i].lng });
+        }
+        sentPointCountRef.current = points.length;
+      }
     };
     poll();
     pollRef.current = setInterval(poll, 2000);
@@ -487,6 +498,8 @@ function AppInner() {
       setActiveRunId(runId);
       setRunStartedAt(startedAt);
       setLivePoints([]);
+      setActivePlannedRoute(plannedRoute ?? null);
+      sentPointCountRef.current = 0;
       setLiveSpeedWarning(false);
       setIsRunModalVisible(true);
     } catch (err: any) {
@@ -523,6 +536,7 @@ function AppInner() {
       setActiveRunId(null);
       setRunStartedAt(null);
       setLivePoints([]);
+      setActivePlannedRoute(null);
       setLiveSpeedWarning(false);
       setIsRunModalVisible(false);
 
@@ -564,6 +578,7 @@ function AppInner() {
             setActiveRunId(null);
             setRunStartedAt(null);
             setLivePoints([]);
+            setActivePlannedRoute(null);
             setIsRunModalVisible(false);
           }
         },
@@ -1041,69 +1056,86 @@ function AppInner() {
         </TouchableOpacity>
       </View>
 
-      {/* ACTIVE RUN TRACKING MODAL */}
+      {/* ACTIVE RUN TRACKING MODAL — full-screen live map with floating blurred controls */}
       <Modal animationType="slide" visible={isRunModalVisible} onRequestClose={() => {}}>
-        <SafeAreaView style={styles.runModalContainer}>
+        <View style={styles.liveMapRoot}>
           <StatusBar barStyle="light-content" />
           {(() => {
             const liveStats = computeRunStats(livePoints);
             const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
             const mins = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
             const secs = (elapsedSec % 60).toString().padStart(2, '0');
+            const mapCenter = livePoints[0] ?? activePlannedRoute?.path[0] ?? null;
+            const avatarUrl = currentUser?.avatarUrl ? `${SERVER_URL}${currentUser.avatarUrl}` : null;
+
             return (
               <>
-                <View style={styles.runModalHeader}>
-                  <View style={styles.runModalLiveDot} />
-                  <Text style={styles.runModalLiveText}>RECORDING</Text>
-                </View>
-
-                {liveSpeedWarning && (
-                  <View style={styles.runModalWarning}>
-                    <Ionicons name="warning-outline" size={16} color="#f59e0b" />
-                    <Text style={styles.runModalWarningText}>
-                      Too fast for running — this part isn&apos;t being counted
-                    </Text>
+                {mapCenter ? (
+                  <LiveLeafletMap
+                    ref={liveMapRef}
+                    initialCenter={mapCenter}
+                    secondaryPath={activePlannedRoute?.path}
+                    avatarUrl={avatarUrl}
+                  />
+                ) : (
+                  <View style={styles.liveMapPlaceholder}>
+                    <ActivityIndicator color="#22c55e" />
+                    <Text style={styles.liveMapPlaceholderText}>Waiting for GPS…</Text>
                   </View>
                 )}
 
-                <View style={styles.runModalCenter}>
-                  <Text style={styles.runModalTime}>{mins}:{secs}</Text>
-                  <Text style={styles.runModalTimeLabel}>TIME</Text>
+                <SafeAreaView style={styles.liveOverlayTop} pointerEvents="box-none">
+                  <BlurView intensity={70} tint="dark" style={styles.liveHeaderPill}>
+                    <View style={styles.runModalLiveDot} />
+                    <Text style={styles.runModalLiveText}>RECORDING</Text>
+                  </BlurView>
+                  {liveSpeedWarning && (
+                    <BlurView intensity={70} tint="dark" style={styles.liveWarningPill}>
+                      <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+                      <Text style={styles.runModalWarningText}>Too fast — this part isn&apos;t counted</Text>
+                    </BlurView>
+                  )}
+                </SafeAreaView>
 
-                  <View style={styles.runModalStatsRow}>
-                    <View style={styles.runModalStat}>
-                      <Text style={styles.runModalStatValue}>{(liveStats.distanceMeters / 1000).toFixed(2)}</Text>
-                      <Text style={styles.runModalStatLabel}>KM</Text>
+                <SafeAreaView style={styles.liveOverlayBottom} pointerEvents="box-none">
+                  <BlurView intensity={80} tint="dark" style={styles.liveStatsPanel}>
+                    <Text style={styles.runModalTime}>{mins}:{secs}</Text>
+                    <Text style={styles.runModalTimeLabel}>TIME</Text>
+                    <View style={styles.runModalStatsRow}>
+                      <View style={styles.runModalStat}>
+                        <Text style={styles.runModalStatValue}>{(liveStats.distanceMeters / 1000).toFixed(2)}</Text>
+                        <Text style={styles.runModalStatLabel}>KM</Text>
+                      </View>
+                      <View style={styles.runModalStat}>
+                        <Text style={styles.runModalStatValue}>{liveStats.avgSpeedKmh || 0}</Text>
+                        <Text style={styles.runModalStatLabel}>AVG KM/H</Text>
+                      </View>
+                      <View style={styles.runModalStat}>
+                        <Text style={styles.runModalStatValue}>{liveStats.maxSpeedKmh || 0}</Text>
+                        <Text style={styles.runModalStatLabel}>MAX KM/H</Text>
+                      </View>
                     </View>
-                    <View style={styles.runModalStat}>
-                      <Text style={styles.runModalStatValue}>{liveStats.avgSpeedKmh || 0}</Text>
-                      <Text style={styles.runModalStatLabel}>AVG KM/H</Text>
-                    </View>
-                    <View style={styles.runModalStat}>
-                      <Text style={styles.runModalStatValue}>{liveStats.maxSpeedKmh || 0}</Text>
-                      <Text style={styles.runModalStatLabel}>MAX KM/H</Text>
-                    </View>
+                  </BlurView>
+
+                  <View style={styles.runModalActions}>
+                    <TouchableOpacity onPress={handleDiscardRun} style={styles.runModalDiscardButton} disabled={isFinishingRun}>
+                      <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                      <Text style={styles.runModalDiscardText}>Discard</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleStopRun} style={styles.runModalStopButton} disabled={isFinishingRun}>
+                      {isFinishingRun ? <ActivityIndicator color="#000" /> : (
+                        <>
+                          <Ionicons name="stop-circle" size={24} color="#000" />
+                          <Text style={styles.runModalStopText}>Stop & Save</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
                   </View>
-                </View>
-
-                <View style={styles.runModalActions}>
-                  <TouchableOpacity onPress={handleDiscardRun} style={styles.runModalDiscardButton} disabled={isFinishingRun}>
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                    <Text style={styles.runModalDiscardText}>Discard</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleStopRun} style={styles.runModalStopButton} disabled={isFinishingRun}>
-                    {isFinishingRun ? <ActivityIndicator color="#000" /> : (
-                      <>
-                        <Ionicons name="stop-circle" size={24} color="#000" />
-                        <Text style={styles.runModalStopText}>Stop & Save</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
+                </SafeAreaView>
               </>
             );
           })()}
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* RUN DETAIL MODAL */}
@@ -1384,7 +1416,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   runModalWarningText: { color: '#f59e0b', fontSize: 11, fontWeight: '600', flexShrink: 1, textAlign: 'center' },
-  runModalCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   runModalTime: { color: '#fff', fontSize: 64, fontWeight: '900', fontVariant: ['tabular-nums'] },
   runModalTimeLabel: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 2, marginTop: 4 },
   runModalStatsRow: { flexDirection: 'row', gap: 32, marginTop: 48 },
@@ -1402,6 +1433,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     height: 60,
     width: 110,
+    backgroundColor: 'rgba(9,9,11,0.6)',
   },
   runModalDiscardText: { color: '#ef4444', fontSize: 13, fontWeight: 'bold' },
   runModalStopButton: {
@@ -1415,6 +1447,52 @@ const styles = StyleSheet.create({
     height: 60,
   },
   runModalStopText: { color: '#000', fontSize: 16, fontWeight: '900' },
+  liveMapRoot: { flex: 1, backgroundColor: '#09090b' },
+  liveMapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  liveMapPlaceholderText: { color: '#71717a', fontSize: 13, fontWeight: '600' },
+  liveOverlayTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingTop: 12,
+    gap: 8,
+  },
+  liveHeaderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  liveWarningPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 16,
+    marginHorizontal: 20,
+    overflow: 'hidden',
+  },
+  liveOverlayBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 16,
+  },
+  liveStatsPanel: {
+    borderRadius: 28,
+    paddingVertical: 24,
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
   runModalLiveTextNeutral: { color: '#71717a', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
   detailDate: { color: '#fff', fontSize: 20, fontWeight: '900' },
   bannedBanner: {
