@@ -27,7 +27,7 @@ export class FinishRunDto {
   // trivial to fake (anyone could POST a huge distanceMeters directly and
   // top the leaderboard without ever running).
   @IsArray()
-  @ArrayMinSize(2, { message: 'A run needs at least 2 GPS points to be recorded' })
+  @ArrayMinSize(2, { message: 'Yugurishni yozib olish uchun kamida 2 ta GPS nuqtasi kerak' })
   @ValidateNested({ each: true })
   @Type(() => RunPointDto)
   path: RunPointDto[];

@@ -3,8 +3,8 @@ import "./globals.css";
 import ClientLayout from "./ClientLayout";
 
 export const metadata: Metadata = {
-  title: "RunApp — Run, Compete, Win",
-  description: "Track your runs, climb the leaderboard, and get moving.",
+  title: "RunApp — Yugur, Musobaqalash, G'ol",
+  description: "Yugurishlaringizni kuzating, reytingga chiqing va harakatlaning.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="uz" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <ClientLayout>{children}</ClientLayout>
       </body>

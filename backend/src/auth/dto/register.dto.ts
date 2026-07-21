@@ -4,12 +4,12 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^[a-zA-Z0-9_.-]{3,32}$/, {
-    message: 'Username must be 3-32 characters (letters, numbers, _ . -)',
+    message: "Foydalanuvchi nomi 3-32 belgidan iborat bo'lishi kerak (harflar, raqamlar, _ . -)",
   })
   username: string;
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  @MinLength(6, { message: 'Parol kamida 6 belgidan iborat bo\'lishi kerak' })
   password: string;
 }

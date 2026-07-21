@@ -19,9 +19,9 @@ interface Entry {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 const TABS: { key: Period; label: string }[] = [
-  { key: 'daily', label: 'Daily' },
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'alltime', label: 'All-time' },
+  { key: 'daily', label: 'Kunlik' },
+  { key: 'weekly', label: 'Haftalik' },
+  { key: 'alltime', label: 'Barcha vaqt' },
 ];
 
 interface MyRank {
@@ -61,9 +61,9 @@ export default function LeaderboardPage() {
     <div className="space-y-8 pb-12 max-w-2xl">
       <div>
         <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl flex items-center gap-3">
-          <Trophy className="h-8 w-8 text-primary" /> Leaderboard
+          <Trophy className="h-8 w-8 text-primary" /> Reyting
         </h1>
-        <p className="text-gray-400 text-sm mt-1">See who&apos;s running the most.</p>
+        <p className="text-gray-400 text-sm mt-1">Eng ko'p yugurganlarni ko'ring.</p>
       </div>
 
       <div className="flex gap-2 bg-white/5 border border-white/10 rounded-2xl p-1 w-fit">
@@ -95,16 +95,16 @@ export default function LeaderboardPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-white truncate">
-              {myRank.entry.username} <span className="text-primary text-xs">(you)</span>
+              {myRank.entry.username} <span className="text-primary text-xs">(siz)</span>
             </div>
             <div className="text-xs text-gray-400">{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</div>
           </div>
-          <div className="text-primary font-bold text-sm shrink-0">{myRank.entry.points} pts</div>
+          <div className="text-primary font-bold text-sm shrink-0">{myRank.entry.points} ball</div>
         </div>
       )}
 
       {!loading && !myRank?.rank && (
-        <div className="text-xs text-gray-500 italic">You haven&apos;t run in this period yet — record a run to appear on the board.</div>
+        <div className="text-xs text-gray-500 italic">Siz bu davrda hali yugurmagansiz — reytingda ko'rinish uchun yugurishni yozib oling.</div>
       )}
 
       {loading ? (
@@ -116,7 +116,7 @@ export default function LeaderboardPage() {
       ) : entries.length === 0 ? (
         <div className="glass-panel p-8 rounded-3xl text-center text-gray-500">
           <Trophy className="h-10 w-10 mx-auto text-gray-600 mb-3" />
-          <p className="text-sm">No runs recorded in this period yet.</p>
+          <p className="text-sm">Bu davrda hali yugurishlar qayd etilmagan.</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -148,11 +148,11 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-white truncate">
-                    {entry.username} {isMe && <span className="text-primary text-xs">(you)</span>}
+                    {entry.username} {isMe && <span className="text-primary text-xs">(siz)</span>}
                   </div>
                   <div className="text-xs text-gray-400">{(entry.distanceMeters / 1000).toFixed(2)} km</div>
                 </div>
-                <div className="text-primary font-bold text-sm shrink-0">{entry.points} pts</div>
+                <div className="text-primary font-bold text-sm shrink-0">{entry.points} ball</div>
               </div>
             );
           })}

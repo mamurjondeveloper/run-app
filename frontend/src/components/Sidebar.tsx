@@ -14,10 +14,10 @@ export default function Sidebar() {
   const { user, logout } = useAuthStore();
 
   const links = [
-    { name: 'Dashboard', href: '/', icon: Home },
-    { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
-    { name: 'History', href: '/history', icon: History },
-    { name: 'Plan a Run', href: '/plan-run', icon: Map },
+    { name: 'Boshqaruv paneli', href: '/', icon: Home },
+    { name: 'Reyting', href: '/leaderboard', icon: Trophy },
+    { name: 'Tarix', href: '/history', icon: History },
+    { name: 'Yugurish rejalashtirish', href: '/plan-run', icon: Map },
   ];
 
   return (
@@ -72,13 +72,13 @@ export default function Sidebar() {
               <div className="text-sm font-semibold text-white truncate group-hover:text-primary transition-colors">
                 {user.username}
               </div>
-              <div className="text-xs text-gray-400 truncate">View Profile</div>
+              <div className="text-xs text-gray-400 truncate">Profilni ko'rish</div>
             </div>
           </Link>
           <button
             onClick={logout}
             className="p-2 rounded-xl text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all cursor-pointer shrink-0"
-            title="Log Out"
+            title="Chiqish"
           >
             <LogOut className="h-5 w-5" />
           </button>

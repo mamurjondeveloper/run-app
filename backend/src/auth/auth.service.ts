@@ -18,12 +18,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new UnauthorizedException("Foydalanuvchi nomi yoki parol noto'g'ri");
     }
 
     const isMatch = await bcrypt.compare(pass, user.passwordHash);
     if (!isMatch) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new UnauthorizedException("Foydalanuvchi nomi yoki parol noto'g'ri");
     }
 
     return this.buildAuthResponse(user);
@@ -32,7 +32,7 @@ export class AuthService {
   async register(username: string, pass: string) {
     const existing = await this.prisma.user.findUnique({ where: { username } });
     if (existing) {
-      throw new ConflictException('Username is already taken');
+      throw new ConflictException('Bu foydalanuvchi nomi allaqachon band');
     }
 
     const passwordHash = await bcrypt.hash(pass, 10);
@@ -71,7 +71,7 @@ export class AuthService {
     if (username) {
       const existing = await this.prisma.user.findUnique({ where: { username } });
       if (existing && existing.id !== userId) {
-        throw new ConflictException('Username is already taken');
+        throw new ConflictException('Bu foydalanuvchi nomi allaqachon band');
       }
     }
 
@@ -130,7 +130,7 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isMatch) {
-      throw new UnauthorizedException('Current password is incorrect');
+      throw new UnauthorizedException("Joriy parol noto'g'ri");
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);

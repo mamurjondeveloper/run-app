@@ -52,9 +52,9 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       updateUser(res.data);
-      showToast('Profile photo updated!', 'success');
+      showToast('Profil rasmi yangilandi!', 'success');
     } catch (err) {
-      showToast(getErrorMessage(err, 'Failed to upload photo'), 'error');
+      showToast(getErrorMessage(err, "Rasmni yuklab bo'lmadi"), 'error');
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -67,9 +67,9 @@ export default function ProfilePage() {
     try {
       const res = await api.patch('/auth/profile', { username: username.trim() });
       updateUser(res.data);
-      showToast('Username updated!', 'success');
+      showToast('Foydalanuvchi nomi yangilandi!', 'success');
     } catch (err) {
-      showToast(getErrorMessage(err, 'Failed to update username'), 'error');
+      showToast(getErrorMessage(err, "Foydalanuvchi nomini yangilab bo'lmadi"), 'error');
     } finally {
       setIsSavingUsername(false);
     }
@@ -78,18 +78,18 @@ export default function ProfilePage() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      showToast('New passwords do not match', 'error');
+      showToast('Yangi parollar mos kelmadi', 'error');
       return;
     }
     setIsSavingPassword(true);
     try {
       await api.post('/auth/change-password', { currentPassword, newPassword });
-      showToast('Password changed successfully!', 'success');
+      showToast("Parol muvaffaqiyatli o'zgartirildi!", 'success');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (err) {
-      showToast(getErrorMessage(err, 'Failed to change password'), 'error');
+      showToast(getErrorMessage(err, "Parolni o'zgartirib bo'lmadi"), 'error');
     } finally {
       setIsSavingPassword(false);
     }
@@ -100,8 +100,8 @@ export default function ProfilePage() {
   return (
     <div className="space-y-8 pb-12 max-w-2xl">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">Profile</h1>
-        <p className="text-gray-400 text-sm mt-1">Manage your account and security</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">Profil</h1>
+        <p className="text-gray-400 text-sm mt-1">Hisobingiz va xavfsizlikni boshqaring</p>
       </div>
 
       <div className="glass-panel p-6 rounded-3xl space-y-6">
@@ -109,7 +109,7 @@ export default function ProfilePage() {
           <button
             onClick={handleAvatarClick}
             className="relative h-20 w-20 rounded-full bg-primary/20 border border-primary/20 flex items-center justify-center shrink-0 overflow-hidden group cursor-pointer"
-            title="Change photo"
+            title="Rasmni o'zgartirish"
           >
             {user.avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -134,13 +134,13 @@ export default function ProfilePage() {
           />
           <div>
             <div className="text-lg font-bold text-white">{user.username}</div>
-            <div className="text-xs text-gray-400 mt-0.5">Click your photo to change it</div>
+            <div className="text-xs text-gray-400 mt-0.5">O'zgartirish uchun rasmingizga bosing</div>
           </div>
         </div>
 
         <form onSubmit={handleSaveUsername} className="flex items-end gap-3">
           <Input
-            label="Username"
+            label="Foydalanuvchi nomi"
             icon={<UserIcon className="h-4 w-4" />}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -153,18 +153,18 @@ export default function ProfilePage() {
             disabled={!username.trim() || username === user.username}
             className="shrink-0"
           >
-            Save
+            Saqlash
           </Button>
         </form>
       </div>
 
       <div className="glass-panel p-6 rounded-3xl space-y-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <Lock className="h-4 w-4 text-primary" /> Change Password
+          <Lock className="h-4 w-4 text-primary" /> Parolni o'zgartirish
         </h2>
         <form onSubmit={handleChangePassword} className="space-y-4">
           <Input
-            label="Current Password"
+            label="Joriy parol"
             type="password"
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
@@ -172,7 +172,7 @@ export default function ProfilePage() {
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="New Password"
+              label="Yangi parol"
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
@@ -180,7 +180,7 @@ export default function ProfilePage() {
               minLength={6}
             />
             <Input
-              label="Confirm New Password"
+              label="Yangi parolni tasdiqlang"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -194,7 +194,7 @@ export default function ProfilePage() {
             isLoading={isSavingPassword}
             disabled={!currentPassword || !newPassword || !confirmPassword}
           >
-            Update Password
+            Parolni yangilash
           </Button>
         </form>
       </div>

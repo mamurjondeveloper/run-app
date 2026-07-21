@@ -9,11 +9,11 @@ export default function MobileNav() {
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'Home', href: '/', icon: Home },
-    { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
-    { name: 'History', href: '/history', icon: History },
-    { name: 'Plan', href: '/plan-run', icon: Map },
-    { name: 'Profile', href: '/profile', icon: User },
+    { name: 'Bosh', href: '/', icon: Home },
+    { name: 'Reyting', href: '/leaderboard', icon: Trophy },
+    { name: 'Tarix', href: '/history', icon: History },
+    { name: 'Reja', href: '/plan-run', icon: Map },
+    { name: 'Profil', href: '/profile', icon: User },
   ];
 
   return (

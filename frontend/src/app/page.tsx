@@ -67,7 +67,7 @@ export default function DashboardPage() {
       const res = await api.post('/runs/start', {});
       router.push(`/run/${res.data.id}`);
     } catch (err) {
-      setStartError(isAxiosError(err) && typeof err.response?.data?.message === 'string' ? err.response.data.message : 'Could not start a run');
+      setStartError(isAxiosError(err) && typeof err.response?.data?.message === 'string' ? err.response.data.message : "Yugurishni boshlab bo'lmadi");
       setIsStartingRun(false);
     }
   };
@@ -89,9 +89,9 @@ export default function DashboardPage() {
     <div className="space-y-10 pb-12">
       <div>
         <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">
-          Welcome back, <span className="text-primary font-bold">{user?.username}</span>
+          Xush kelibsiz, <span className="text-primary font-bold">{user?.username}</span>
         </h1>
-        <p className="text-gray-400 text-sm mt-1">Here&apos;s how your running is going.</p>
+        <p className="text-gray-400 text-sm mt-1">Yugurishlaringiz qanday ketyapti — mana ko'ring.</p>
       </div>
 
       {user?.isBanned ? null : (
@@ -101,9 +101,9 @@ export default function DashboardPage() {
               <Play className="h-6 w-6 text-primary" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-white font-bold text-sm">Ready to run?</h3>
+              <h3 className="text-white font-bold text-sm">Yugurishga tayyormisiz?</h3>
               <p className="text-gray-400 text-xs mt-1">
-                Start tracking right here in the browser, or plan a route first and get turn-by-turn voice guidance.
+                To'g'ridan-to'g'ri shu brauzerda kuzatuvni boshlang, yoki avval yo'nalish rejalashtirib ovozli yo'l-yo'riq oling.
               </p>
               {startError && <p className="text-red-400 text-xs mt-1">{startError}</p>}
             </div>
@@ -113,7 +113,7 @@ export default function DashboardPage() {
               href="/plan-run"
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border border-white/10 text-gray-200 hover:text-white hover:border-white/20 font-bold text-sm"
             >
-              <MapIcon className="h-4 w-4" /> Plan a Run
+              <MapIcon className="h-4 w-4" /> Yugurish rejalashtirish
             </Link>
             <button
               onClick={handleStartFreeRun}
@@ -121,39 +121,39 @@ export default function DashboardPage() {
               className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-bg-dark font-bold text-sm cursor-pointer disabled:opacity-50"
             >
               {isStartingRun ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Start a Run
+              Yugurishni boshlash
             </button>
           </div>
         </div>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Footprints} label="Total Distance" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} />
-        <StatCard icon={Trophy} label="Total Points" value={`${stats?.totalPoints ?? 0}`} />
-        <StatCard icon={Gauge} label="Avg Speed" value={`${stats?.avgSpeedKmh ?? 0} km/h`} />
-        <StatCard icon={Flame} label="Current Streak" value={`${stats?.currentStreakDays ?? 0} days`} />
+        <StatCard icon={Footprints} label="Umumiy masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} />
+        <StatCard icon={Trophy} label="Umumiy ballar" value={`${stats?.totalPoints ?? 0}`} />
+        <StatCard icon={Gauge} label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0} km/h`} />
+        <StatCard icon={Flame} label="Joriy ketma-ketlik" value={`${stats?.currentStreakDays ?? 0} kun`} />
       </div>
 
       {!!stats?.totalElevationM && (
         <div className="glass-panel p-4 rounded-2xl flex items-center gap-3 text-gray-300 text-sm w-fit">
           <Mountain className="h-4 w-4 text-primary" />
-          <span>{Math.round(stats.totalElevationM)} m total elevation gain</span>
+          <span>{Math.round(stats.totalElevationM)} m umumiy balandlik oshishi</span>
         </div>
       )}
 
       <section>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">Recent Runs</h2>
+          <h2 className="text-xl font-bold text-white">So'nggi yugurishlar</h2>
           <Link href="/history" className="text-primary text-sm font-semibold hover:underline">
-            View all
+            Barchasini ko'rish
           </Link>
         </div>
         {runs.length === 0 ? (
           <div className="glass-panel p-8 rounded-3xl text-center text-gray-500">
             <Footprints className="h-10 w-10 mx-auto text-gray-600 mb-3" />
-            <p className="text-sm">No runs yet.</p>
+            <p className="text-sm">Hali yugurishlar yo'q.</p>
             <Link href="/plan-run" className="text-primary text-sm font-bold mt-3 inline-block hover:underline">
-              Plan your first run
+              Birinchi yugurishingizni rejalashtiring
             </Link>
           </div>
         ) : (
@@ -172,10 +172,10 @@ export default function DashboardPage() {
                     {run.flaggedSegments > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
                   </div>
                   <div className="text-xs text-gray-400 mt-1">
-                    {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
+                    {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                   </div>
                 </div>
-                <div className="text-primary font-bold text-sm shrink-0">+{run.pointsEarned} pts</div>
+                <div className="text-primary font-bold text-sm shrink-0">+{run.pointsEarned} ball</div>
               </Link>
             ))}
           </div>

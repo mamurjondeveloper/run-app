@@ -74,7 +74,7 @@ export default function RunDetailPage() {
         const res = await api.get(`/runs/${params.id}`);
         setRun(res.data);
       } catch {
-        setError('Could not load this run');
+        setError("Bu yugurishni yuklab bo'lmadi");
       } finally {
         setLoading(false);
       }
@@ -94,9 +94,9 @@ export default function RunDetailPage() {
   if (error || !run) {
     return (
       <div className="glass-panel p-8 rounded-3xl text-center text-gray-500 max-w-lg">
-        <p className="text-sm">{error || 'Run not found'}</p>
+        <p className="text-sm">{error || 'Yugurish topilmadi'}</p>
         <button onClick={() => router.push('/')} className="text-primary text-sm font-bold mt-4 hover:underline cursor-pointer">
-          Back to dashboard
+          Boshqaruv paneliga qaytish
         </button>
       </div>
     );
@@ -108,7 +108,7 @@ export default function RunDetailPage() {
         onClick={() => router.back()}
         className="flex items-center gap-2 text-gray-400 hover:text-white text-sm font-semibold cursor-pointer"
       >
-        <ArrowLeft className="h-4 w-4" /> Back
+        <ArrowLeft className="h-4 w-4" /> Orqaga
       </button>
 
       <div>
@@ -124,7 +124,7 @@ export default function RunDetailPage() {
         <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 text-amber-400 text-sm">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           <span>
-            {run.flaggedSegments} part{run.flaggedSegments > 1 ? 's' : ''} of this run were faster than running speed and weren&apos;t counted.
+            Bu yugurishning {run.flaggedSegments} qismi yugurish tezligidan tez bo&apos;lgani uchun hisoblanmadi.
           </span>
         </div>
       )}
@@ -134,24 +134,24 @@ export default function RunDetailPage() {
           <RouteMap path={run.path} secondaryPath={run.plannedRoutePath ?? undefined} />
           {run.plannedRoutePath && run.plannedRoutePath.length > 0 && (
             <div className="flex items-center gap-4 text-xs text-gray-400 px-1">
-              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-primary rounded-full" /> Actual</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-zinc-500 rounded-full" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #71717a 0 4px, transparent 4px 7px)' }} /> Planned route</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-primary rounded-full" /> Haqiqiy</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-zinc-500 rounded-full" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #71717a 0 4px, transparent 4px 7px)' }} /> Rejalashtirilgan yo'nalish</span>
               {run.plannedDistanceMeters != null && (
-                <span className="ml-auto">Planned {(run.plannedDistanceMeters / 1000).toFixed(2)} km</span>
+                <span className="ml-auto">Reja {(run.plannedDistanceMeters / 1000).toFixed(2)} km</span>
               )}
             </div>
           )}
         </div>
       ) : (
-        <div className="glass-panel p-8 rounded-3xl text-center text-gray-500 text-sm">No route data for this run</div>
+        <div className="glass-panel p-8 rounded-3xl text-center text-gray-500 text-sm">Bu yugurish uchun yo'nalish ma'lumoti yo'q</div>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat icon={Footprints} label="Distance" value={`${(run.distanceMeters / 1000).toFixed(2)} km`} />
-        <Stat icon={Clock} label="Duration" value={`${Math.floor(run.durationSec / 60)}:${(run.durationSec % 60).toString().padStart(2, '0')}`} />
-        <Stat icon={Gauge} label="Avg Speed" value={`${run.avgSpeedKmh} km/h`} />
-        <Stat icon={Zap} label="Max Speed" value={`${run.maxSpeedKmh} km/h`} />
-        {run.elevationGainM > 0 && <Stat icon={Mountain} label="Elevation Gain" value={`${Math.round(run.elevationGainM)} m`} />}
+        <Stat icon={Footprints} label="Masofa" value={`${(run.distanceMeters / 1000).toFixed(2)} km`} />
+        <Stat icon={Clock} label="Davomiyligi" value={`${Math.floor(run.durationSec / 60)}:${(run.durationSec % 60).toString().padStart(2, '0')}`} />
+        <Stat icon={Gauge} label="O'rtacha tezlik" value={`${run.avgSpeedKmh} km/h`} />
+        <Stat icon={Zap} label="Maksimal tezlik" value={`${run.maxSpeedKmh} km/h`} />
+        {run.elevationGainM > 0 && <Stat icon={Mountain} label="Balandlik oshishi" value={`${Math.round(run.elevationGainM)} m`} />}
       </div>
 
       {(() => {
@@ -162,7 +162,7 @@ export default function RunDetailPage() {
             {speedSeries.length > 1 && (
               <div className="glass-panel p-6 rounded-3xl">
                 <div className="flex items-center gap-2 text-sm font-bold text-white mb-4">
-                  <TrendingUp className="h-4 w-4 text-primary" /> Speed over distance
+                  <TrendingUp className="h-4 w-4 text-primary" /> Masofa bo'yicha tezlik
                 </div>
                 <RunChart
                   points={speedSeries}
@@ -175,7 +175,7 @@ export default function RunDetailPage() {
             {elevationSeries.length > 1 && (
               <div className="glass-panel p-6 rounded-3xl">
                 <div className="flex items-center gap-2 text-sm font-bold text-white mb-4">
-                  <Mountain className="h-4 w-4 text-primary" /> Elevation profile
+                  <Mountain className="h-4 w-4 text-primary" /> Balandlik profili
                 </div>
                 <RunChart
                   points={elevationSeries}
@@ -191,7 +191,7 @@ export default function RunDetailPage() {
 
       <div className="glass-panel p-6 rounded-3xl text-center">
         <div className="text-3xl font-black text-primary">+{run.pointsEarned}</div>
-        <div className="text-xs text-gray-400 mt-1 uppercase tracking-wider font-semibold">Points Earned</div>
+        <div className="text-xs text-gray-400 mt-1 uppercase tracking-wider font-semibold">To'plangan ballar</div>
       </div>
     </div>
   );

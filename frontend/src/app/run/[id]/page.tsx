@@ -109,7 +109,7 @@ export default function LiveRunPage() {
           setRunStartedAt(Date.now());
         }
       } catch {
-        if (!cancelled) setLoadError('Could not load this run.');
+        if (!cancelled) setLoadError("Bu yugurishni yuklab bo'lmadi.");
       }
     })();
     return () => {
@@ -153,7 +153,7 @@ export default function LiveRunPage() {
   useEffect(() => {
     if (!runMeta || watchIdRef.current != null) return;
     if (!navigator.geolocation) {
-      setTrackError('Your browser does not support live location tracking.');
+      setTrackError("Brauzeringiz jonli joylashuv kuzatuvini qo'llab-quvvatlamaydi.");
       return;
     }
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -182,7 +182,7 @@ export default function LiveRunPage() {
           guideRef.current?.update(point);
         }
       },
-      () => setTrackError('Lost GPS signal — keep this tab open and check location permissions.'),
+      () => setTrackError("GPS signali yo'qoldi — bu varaqni ochiq qoldiring va joylashuv ruxsatlarini tekshiring."),
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,7 +197,7 @@ export default function LiveRunPage() {
 
   const handleFinish = async () => {
     if (livePath.length < 2) {
-      setTrackError('Not enough GPS points recorded yet to save this run.');
+      setTrackError("Bu yugurishni saqlash uchun hali yetarli GPS nuqtalari yozilmadi.");
       return;
     }
     setIsFinishing(true);
@@ -210,7 +210,7 @@ export default function LiveRunPage() {
       setTrackError(
         isAxiosError(err) && typeof err.response?.data?.message === 'string'
           ? err.response.data.message
-          : 'Could not save this run',
+          : "Bu yugurishni saqlab bo'lmadi",
       );
       setIsFinishing(false);
     }
@@ -260,7 +260,7 @@ export default function LiveRunPage() {
     <div className="space-y-6 pb-12 max-w-2xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-primary text-sm font-bold">
-          <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse" /> RECORDING
+          <span className="h-2.5 w-2.5 rounded-full bg-primary animate-pulse" /> YOZILMOQDA
         </div>
         {runMeta.plannedRoutePath && runMeta.plannedRoutePath.length > 0 && (
           <button
@@ -268,7 +268,7 @@ export default function LiveRunPage() {
             className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-white cursor-pointer"
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-            {voiceEnabled ? 'Voice on' : 'Voice off'}
+            {voiceEnabled ? 'Ovoz yoniq' : "Ovoz o'chiq"}
           </button>
         )}
       </div>
@@ -276,7 +276,7 @@ export default function LiveRunPage() {
       {liveSpeedWarning && (
         <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 text-amber-400 text-sm">
           <AlertTriangle className="h-5 w-5 shrink-0" />
-          <span>Too fast for running — this part isn&apos;t being counted.</span>
+          <span>Juda tez — bu qism hisoblanmayapti.</span>
         </div>
       )}
       {voiceEnabled && lastAnnouncement && (
@@ -290,7 +290,7 @@ export default function LiveRunPage() {
         <div className="text-5xl font-black text-white tabular-nums">
           {mins}:{secs}
         </div>
-        <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">Time</div>
+        <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">Vaqt</div>
         <div className="grid grid-cols-3 gap-4 mt-6">
           <div>
             <div className="text-2xl font-black text-white">{(liveStats.distanceMeters / 1000).toFixed(2)}</div>
@@ -298,16 +298,16 @@ export default function LiveRunPage() {
           </div>
           <div>
             <div className="text-2xl font-black text-white">{currentSpeedKmh.toFixed(1)}</div>
-            <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">KM/H NOW</div>
+            <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">HOZIRGI KM/S</div>
           </div>
           <div>
             <div className="text-2xl font-black text-white">{formatPace(avgSpeedKmh)}</div>
-            <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">MIN/KM</div>
+            <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">DAQ/KM</div>
           </div>
         </div>
         {liveStats.elevationGainM > 0 && (
           <div className="flex items-center justify-center gap-1.5 text-gray-400 text-xs mt-5">
-            <Mountain className="h-3.5 w-3.5" /> {Math.round(liveStats.elevationGainM)} m elevation gain
+            <Mountain className="h-3.5 w-3.5" /> {Math.round(liveStats.elevationGainM)} m balandlik oshishi
           </div>
         )}
       </div>
@@ -323,12 +323,12 @@ export default function LiveRunPage() {
       ) : runMeta.plannedRoutePath ? (
         <>
           <RouteMap path={runMeta.plannedRoutePath} height={300} />
-          <p className="text-xs text-gray-500 text-center">Waiting for a GPS fix… follow the dashed planned route once tracking starts.</p>
+          <p className="text-xs text-gray-500 text-center">GPS signali kutilmoqda… kuzatuv boshlangach chiziqli rejalashtirilgan yo'nalishga ergashing.</p>
         </>
       ) : (
         <div className="glass-panel flex flex-col items-center justify-center gap-3 text-gray-500 text-sm" style={{ height: 300 }}>
           <Loader2 className="h-6 w-6 animate-spin" />
-          Waiting for a GPS fix…
+          GPS signali kutilmoqda…
         </div>
       )}
 
@@ -338,7 +338,7 @@ export default function LiveRunPage() {
           disabled={isFinishing}
           className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-red-500/30 text-red-400 font-bold text-sm cursor-pointer hover:bg-red-500/10 disabled:opacity-50"
         >
-          <Trash2 className="h-4 w-4" /> Discard
+          <Trash2 className="h-4 w-4" /> Bekor qilish
         </button>
         <button
           onClick={handleFinish}
@@ -346,10 +346,10 @@ export default function LiveRunPage() {
           className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-bg-dark font-bold text-sm cursor-pointer disabled:opacity-50"
         >
           {isFinishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
-          Finish & Save
+          Tugatish va saqlash
         </button>
       </div>
-      <p className="text-xs text-gray-500 text-center">Keep this tab open while running — closing it or locking your screen stops tracking.</p>
+      <p className="text-xs text-gray-500 text-center">Yugurish davomida bu varaqni ochiq qoldiring — yopish yoki ekranni qulflash kuzatuvni to'xtatadi.</p>
     </div>
   );
 }

@@ -49,11 +49,11 @@ export class AuthController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadAvatar(@CurrentUser() user: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('No file uploaded');
+      throw new BadRequestException('Fayl yuklanmadi');
     }
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Unsupported image format. Supported: JPG, PNG, WEBP');
+      throw new BadRequestException("Qo'llab-quvvatlanmaydigan rasm formati. Qo'llab-quvvatlanadi: JPG, PNG, WEBP");
     }
     return this.authService.updateAvatar(user.id, file);
   }

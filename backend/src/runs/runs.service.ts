@@ -122,7 +122,7 @@ export class RunsService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.isBanned) {
       throw new ForbiddenException(
-        user.bannedReason || 'Your account is suspended for repeated suspicious speed activity.',
+        user.bannedReason || "Hisobingiz takroriy shubhali tezlik faoliyati uchun to'xtatilgan.",
       );
     }
 
@@ -152,21 +152,21 @@ export class RunsService {
   async finishRun(userId: string, runId: string, dto: FinishRunDto) {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });
     if (!run) {
-      throw new NotFoundException('Run not found');
+      throw new NotFoundException('Yugurish topilmadi');
     }
     if (run.userId !== userId) {
-      throw new ForbiddenException('This run does not belong to you');
+      throw new ForbiddenException('Bu yugurish sizga tegishli emas');
     }
     if (run.status !== 'in_progress') {
-      throw new BadRequestException('Run has already been finished or discarded');
+      throw new BadRequestException('Bu yugurish allaqachon tugatilgan yoki bekor qilingan');
     }
 
     const computed = computeStatsFromPath(dto.path);
     if (computed.distanceMeters <= 0) {
       throw new BadRequestException(
         computed.flaggedSegments > 0
-          ? 'This entire run looked faster than running speed, so nothing could be counted.'
-          : 'No movement detected in this run',
+          ? "Bu yugurishning barchasi yugurish tezligidan tez ko'rindi, shuning uchun hech narsa hisoblanmadi."
+          : 'Bu yugurishda harakat aniqlanmadi',
       );
     }
 
@@ -234,7 +234,7 @@ export class RunsService {
               where: { id: userId },
               data: {
                 isBanned: true,
-                bannedReason: `Suspended after ${speedViolationCount} runs with speeds faster than running.`,
+                bannedReason: `${speedViolationCount} marta yugurish tezligidan tez harakatlangani uchun to'xtatildi.`,
               },
             }),
           ]
@@ -246,7 +246,7 @@ export class RunsService {
       plannedRoutePath: updatedRun.plannedRoutePath ? JSON.parse(updatedRun.plannedRoutePath) : null,
       warning:
         computed.flaggedSegments > 0
-          ? `${computed.flaggedSegments} part(s) of this run were faster than running speed and were not counted.`
+          ? `Bu yugurishning ${computed.flaggedSegments} qismi yugurish tezligidan tez bo'lgani uchun hisoblanmadi.`
           : null,
       banned: shouldBan,
     };
@@ -255,10 +255,10 @@ export class RunsService {
   async discardRun(userId: string, runId: string) {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });
     if (!run) {
-      throw new NotFoundException('Run not found');
+      throw new NotFoundException('Yugurish topilmadi');
     }
     if (run.userId !== userId) {
-      throw new ForbiddenException('This run does not belong to you');
+      throw new ForbiddenException('Bu yugurish sizga tegishli emas');
     }
     return this.prisma.run.update({
       where: { id: runId },
@@ -277,10 +277,10 @@ export class RunsService {
   async getRun(userId: string, runId: string) {
     const run = await this.prisma.run.findUnique({ where: { id: runId } });
     if (!run) {
-      throw new NotFoundException('Run not found');
+      throw new NotFoundException('Yugurish topilmadi');
     }
     if (run.userId !== userId) {
-      throw new ForbiddenException('This run does not belong to you');
+      throw new ForbiddenException('Bu yugurish sizga tegishli emas');
     }
     return {
       ...run,

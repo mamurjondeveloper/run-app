@@ -18,7 +18,7 @@ export class RoutesService {
   async suggestRoute(lat: number, lng: number, targetKm: number): Promise<SuggestedRoute> {
     const apiKey = this.configService.get<string>('ORS_API_KEY');
     if (!apiKey) {
-      throw new ServiceUnavailableException('Route suggestions are not configured on this server yet');
+      throw new ServiceUnavailableException("Yo'nalish takliflari hali bu serverda sozlanmagan");
     }
 
     const response = await fetch('https://api.openrouteservice.org/v2/directions/foot-walking/geojson', {
@@ -40,13 +40,13 @@ export class RoutesService {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new BadRequestException(`Could not generate a route: ${text.slice(0, 300)}`);
+      throw new BadRequestException(`Yo'nalish yaratib bo'lmadi: ${text.slice(0, 300)}`);
     }
 
     const data = await response.json();
     const feature = data?.features?.[0];
     if (!feature) {
-      throw new BadRequestException('No route could be found near this location');
+      throw new BadRequestException('Bu joy yaqinida yo\'nalish topilmadi');
     }
 
     const coordinates: [number, number][] = feature.geometry.coordinates;

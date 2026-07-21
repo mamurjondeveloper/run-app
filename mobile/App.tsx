@@ -309,7 +309,7 @@ function AppInner() {
       const res = await getApi().get(`/runs/${runId}`);
       setSelectedRun(res.data);
     } catch {
-      Alert.alert('Error', 'Could not load this run');
+      Alert.alert('Xato', "Bu yugurishni yuklab bo'lmadi");
     } finally {
       setIsLoadingRunDetail(false);
     }
@@ -322,7 +322,7 @@ function AppInner() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
-        setPlanError('Location access is needed to suggest a route near you.');
+        setPlanError("Yaqiningizdan yo'nalish taklif qilish uchun joylashuvga ruxsat kerak.");
         return;
       }
       const position = await Promise.race([
@@ -339,9 +339,9 @@ function AppInner() {
       setSuggestedRoute(res.data);
     } catch (err: any) {
       if (err?.message === 'location_timeout') {
-        setPlanError('Location lookup timed out. Make sure GPS is enabled and try again.');
+        setPlanError("Joylashuvni aniqlash vaqti tugadi. GPS yoqilganligiga ishonch hosil qiling va qayta urinib ko'ring.");
       } else {
-        setPlanError(err.response?.data?.message || 'Could not generate a route near you');
+        setPlanError(err.response?.data?.message || "Yaqiningizda yo'nalish yaratib bo'lmadi");
       }
     } finally {
       setIsLocatingForPlan(false);
@@ -357,7 +357,7 @@ function AppInner() {
 
   const handleAuthSubmit = async () => {
     if (!username || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Xato', "Barcha maydonlarni to'ldiring");
       return;
     }
     setIsSubmittingAuth(true);
@@ -371,8 +371,8 @@ function AppInner() {
       setCurrentUser(res.data.user);
       setScreen('home');
     } catch (err: any) {
-      const msg = err.response?.data?.message || `${authMode === 'login' ? 'Login' : 'Registration'} failed.`;
-      Alert.alert('Error', Array.isArray(msg) ? msg.join('\n') : msg);
+      const msg = err.response?.data?.message || `${authMode === 'login' ? 'Kirishda' : "Ro'yxatdan o'tishda"} xatolik yuz berdi.`;
+      Alert.alert('Xato', Array.isArray(msg) ? msg.join('\n') : msg);
     } finally {
       setIsSubmittingAuth(false);
     }
@@ -388,7 +388,7 @@ function AppInner() {
   const handlePickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission needed', 'Please allow photo library access to change your avatar.');
+      Alert.alert('Ruxsat kerak', "Profil rasmini o'zgartirish uchun galereyaga ruxsat bering.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -414,7 +414,7 @@ function AppInner() {
       });
       setCurrentUser(res.data);
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to upload photo');
+      Alert.alert('Xato', err.response?.data?.message || "Rasmni yuklab bo'lmadi");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -426,9 +426,9 @@ function AppInner() {
     try {
       const res = await getApi().patch('/auth/profile', { username: profileUsername.trim() });
       setCurrentUser(res.data);
-      Alert.alert('Saved', 'Username updated!');
+      Alert.alert('Saqlandi', 'Foydalanuvchi nomi yangilandi!');
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to update username');
+      Alert.alert('Xato', err.response?.data?.message || "Foydalanuvchi nomini yangilab bo'lmadi");
     } finally {
       setIsSavingUsername(false);
     }
@@ -436,7 +436,7 @@ function AppInner() {
 
   const handleChangePassword = async () => {
     if (newPasswordInput !== confirmPasswordInput) {
-      Alert.alert('Error', 'New passwords do not match');
+      Alert.alert('Xato', 'Yangi parollar mos kelmadi');
       return;
     }
     setIsSavingPassword(true);
@@ -445,12 +445,12 @@ function AppInner() {
         currentPassword: currentPasswordInput,
         newPassword: newPasswordInput,
       });
-      Alert.alert('Success', 'Password changed successfully!');
+      Alert.alert('Muvaffaqiyatli', "Parol muvaffaqiyatli o'zgartirildi!");
       setCurrentPasswordInput('');
       setNewPasswordInput('');
       setConfirmPasswordInput('');
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to change password');
+      Alert.alert('Xato', err.response?.data?.message || "Parolni o'zgartirib bo'lmadi");
     } finally {
       setIsSavingPassword(false);
     }
@@ -461,7 +461,7 @@ function AppInner() {
     try {
       const foreground = await Location.requestForegroundPermissionsAsync();
       if (foreground.status !== 'granted') {
-        Alert.alert('Permission needed', 'Location access is required to track your run.');
+        Alert.alert('Ruxsat kerak', 'Yugurishni kuzatish uchun joylashuvga ruxsat kerak.');
         return;
       }
 
@@ -472,9 +472,9 @@ function AppInner() {
         // so it doesn't look like the app just crashed/kicked them out.
         await new Promise<void>((resolve) => {
           Alert.alert(
-            'One more step',
-            'On the next screen, choose "Allow all the time" for Location so your run keeps recording when your screen is locked. This may open Settings — after granting it there, come back and tap Start Run again.',
-            [{ text: 'Continue', onPress: () => resolve() }],
+            'Yana bir qadam',
+            'Keyingi ekranda joylashuv uchun "Har doim ruxsat berish"ni tanlang, shunda ekran qulflansa ham yozib olish davom etadi. Bu Sozlamalarni ochishi mumkin — u yerda ruxsat berganingizdan so\'ng, qaytib yana Yugurishni boshlashni bosing.',
+            [{ text: 'Davom etish', onPress: () => resolve() }],
           );
         });
 
@@ -507,7 +507,7 @@ function AppInner() {
         timeInterval: 4000,
         foregroundService: {
           notificationTitle: 'RunApp',
-          notificationBody: 'Recording your run…',
+          notificationBody: 'Yugurishingiz yozilmoqda…',
           notificationColor: '#22c55e',
         },
         showsBackgroundLocationIndicator: true,
@@ -522,7 +522,7 @@ function AppInner() {
       setLiveSpeedWarning(false);
       setIsRunModalVisible(true);
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to start run');
+      Alert.alert('Xato', err.response?.data?.message || "Yugurishni boshlab bo'lmadi");
     } finally {
       setIsStartingRun(false);
     }
@@ -542,7 +542,7 @@ function AppInner() {
       await finishTracking();
       const points = await readRunPoints();
       if (points.length < 2) {
-        Alert.alert('Too short', 'Not enough GPS points were recorded to save this run.');
+        Alert.alert('Juda qisqa', "Bu yugurishni saqlash uchun yetarli GPS nuqtalari yozilmadi.");
         return;
       }
 
@@ -560,31 +560,31 @@ function AppInner() {
       setIsRunModalVisible(false);
 
       if (res.data.warning) {
-        Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.\n\n${res.data.warning}`);
+        Alert.alert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.\n\n${res.data.warning}`);
       } else {
-        Alert.alert('Nice run!', `${(res.data.distanceMeters / 1000).toFixed(2)} km recorded.`);
+        Alert.alert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.`);
       }
       if (res.data.banned) {
         Alert.alert(
-          'Account suspended',
-          'Your account has been suspended for repeated speed violations. Contact support if you think this is a mistake.',
+          "Hisob to'xtatildi",
+          "Hisobingiz takroriy tezlik qoidabuzarliklari uchun to'xtatildi. Agar bu xato deb hisoblasangiz, qo'llab-quvvatlash xizmatiga murojaat qiling.",
         );
       }
       fetchHome();
       const meRes = await getApi().get('/auth/me').catch(() => null);
       if (meRes) setCurrentUser(meRes.data);
     } catch (err: any) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to save run');
+      Alert.alert('Xato', err.response?.data?.message || "Yugurishni saqlab bo'lmadi");
     } finally {
       setIsFinishingRun(false);
     }
   };
 
   const handleDiscardRun = () => {
-    Alert.alert('Discard run?', 'This run will not be saved.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert('Yugurishni bekor qilasizmi?', 'Bu yugurish saqlanmaydi.', [
+      { text: "Yo'q", style: 'cancel' },
       {
-        text: 'Discard',
+        text: "Ha, bekor qilish",
         style: 'destructive',
         onPress: async () => {
           try {
@@ -624,18 +624,18 @@ function AppInner() {
                 <Ionicons name="footsteps" size={54} color="#22c55e" />
                 <Text style={styles.logoText}>RunApp</Text>
                 <Text style={styles.logoSubtext}>
-                  {authMode === 'login' ? 'Run. Compete. Win.' : 'Create Your Account'}
+                  {authMode === 'login' ? "Yuguring. Musobaqalashing. G'oling." : 'Hisobingizni yarating'}
                 </Text>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>USERNAME</Text>
+                <Text style={styles.inputLabel}>FOYDALANUVCHI NOMI</Text>
                 <View style={styles.inputWrapper}>
                   <Ionicons name="person-outline" size={18} color="#71717a" style={styles.inputIcon} />
                   <TextInput
                     value={username}
                     onChangeText={setUsername}
-                    placeholder="username"
+                    placeholder="foydalanuvchi nomi"
                     placeholderTextColor="#52525b"
                     style={styles.textInput}
                     autoCapitalize="none"
@@ -646,7 +646,7 @@ function AppInner() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PASSWORD</Text>
+                <Text style={styles.inputLabel}>PAROL</Text>
                 <View style={styles.inputWrapper}>
                   <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
                   <TextInput
@@ -672,7 +672,7 @@ function AppInner() {
                   <ActivityIndicator color="#000" />
                 ) : (
                   <Text style={styles.primaryButtonText}>
-                    {authMode === 'login' ? 'Sign In' : 'Create Account'}
+                    {authMode === 'login' ? 'Kirish' : "Ro'yxatdan o'tish"}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -682,9 +682,9 @@ function AppInner() {
                 onPress={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
               >
                 <Text style={styles.authModeToggleText}>
-                  {authMode === 'login' ? "New here? " : 'Already have an account? '}
+                  {authMode === 'login' ? "Yangimisiz? " : 'Hisobingiz bormi? '}
                   <Text style={styles.authModeToggleLink}>
-                    {authMode === 'login' ? 'Create an account' : 'Sign in'}
+                    {authMode === 'login' ? 'Hisob yarating' : 'Kirish'}
                   </Text>
                 </Text>
               </TouchableOpacity>
@@ -702,10 +702,10 @@ function AppInner() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
           {screen === 'home' && 'RunApp'}
-          {screen === 'leaderboard' && 'Leaderboard'}
-          {screen === 'history' && 'History'}
-          {screen === 'plan' && 'Plan a Run'}
-          {screen === 'profile' && 'Profile'}
+          {screen === 'leaderboard' && 'Reyting'}
+          {screen === 'history' && 'Tarix'}
+          {screen === 'plan' && 'Yugurish rejalashtirish'}
+          {screen === 'profile' && 'Profil'}
         </Text>
         <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
           <Ionicons name="log-out-outline" size={16} color="#ef4444" />
@@ -716,7 +716,7 @@ function AppInner() {
         <View style={styles.bannedBanner}>
           <Ionicons name="shield-outline" size={16} color="#ef4444" />
           <Text style={styles.bannedBannerText}>
-            {currentUser.bannedReason || 'Your account is suspended for suspicious speed activity.'} New runs can&apos;t be submitted.
+            {currentUser.bannedReason || "Hisobingiz shubhali tezlik faoliyati uchun to'xtatilgan."} Yangi yugurishlar yuborilishi mumkin emas.
           </Text>
         </View>
       )}
@@ -741,26 +741,26 @@ function AppInner() {
                   ) : (
                     <>
                       <Ionicons name="play-circle" size={26} color="#000" />
-                      <Text style={styles.startRunButtonText}>Start Run</Text>
+                      <Text style={styles.startRunButtonText}>Yugurishni boshlash</Text>
                     </>
                   )}
                 </TouchableOpacity>
 
                 <View style={styles.statsGrid}>
-                  <StatCard icon="footsteps-outline" label="Distance" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} width={screenWidth} />
-                  <StatCard icon="trophy-outline" label="Points" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} />
-                  <StatCard icon="speedometer-outline" label="Avg Speed" value={`${stats?.avgSpeedKmh ?? 0} km/h`} width={screenWidth} />
-                  <StatCard icon="flame-outline" label="Streak" value={`${stats?.currentStreakDays ?? 0}d`} width={screenWidth} />
+                  <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} width={screenWidth} />
+                  <StatCard icon="trophy-outline" label="Ballar" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} />
+                  <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0} km/h`} width={screenWidth} />
+                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0}k`} width={screenWidth} />
                 </View>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Recent Runs</Text>
+                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>So'nggi yugurishlar</Text>
                   <TouchableOpacity onPress={() => setScreen('history')}>
-                    <Text style={styles.viewAllLink}>View all</Text>
+                    <Text style={styles.viewAllLink}>Barchasini ko'rish</Text>
                   </TouchableOpacity>
                 </View>
                 {recentRuns.length === 0 ? (
-                  <Text style={styles.emptyText}>No runs yet</Text>
+                  <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
                 ) : (
                   recentRuns.map((run) => (
                     <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
@@ -772,10 +772,10 @@ function AppInner() {
                           {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
                         </View>
                         <Text style={styles.runRowMeta}>
-                          {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
+                          {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                         </Text>
                       </View>
-                      <Text style={styles.runRowPoints}>+{run.pointsEarned} pts</Text>
+                      <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
                     </TouchableOpacity>
                   ))
                 )}
@@ -794,7 +794,7 @@ function AppInner() {
                   style={[styles.periodTab, period === p && styles.periodTabActive]}
                 >
                   <Text style={[styles.periodTabText, period === p && styles.periodTabTextActive]}>
-                    {p === 'daily' ? 'Daily' : p === 'weekly' ? 'Weekly' : 'All-time'}
+                    {p === 'daily' ? 'Kunlik' : p === 'weekly' ? 'Haftalik' : 'Barcha vaqt'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -811,20 +811,20 @@ function AppInner() {
                   )}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.leaderboardUsername}>{myRank.entry.username} (you)</Text>
+                  <Text style={styles.leaderboardUsername}>{myRank.entry.username} (siz)</Text>
                   <Text style={styles.leaderboardDistance}>{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</Text>
                 </View>
-                <Text style={styles.leaderboardPoints}>{myRank.entry.points} pts</Text>
+                <Text style={styles.leaderboardPoints}>{myRank.entry.points} ball</Text>
               </View>
             )}
             {!isLoadingLeaderboard && !myRank.rank && (
-              <Text style={[styles.emptyText, { marginBottom: 12 }]}>You haven&apos;t run in this period yet</Text>
+              <Text style={[styles.emptyText, { marginBottom: 12 }]}>Siz bu davrda hali yugurmagansiz</Text>
             )}
 
             {isLoadingLeaderboard ? (
               <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
             ) : leaderboard.length === 0 ? (
-              <Text style={[styles.emptyText, { marginTop: 16 }]}>No runs recorded in this period yet</Text>
+              <Text style={[styles.emptyText, { marginTop: 16 }]}>Bu davrda hali yugurishlar qayd etilmagan</Text>
             ) : (
               leaderboard.map((entry) => (
                 <View
@@ -846,7 +846,7 @@ function AppInner() {
                     <Text style={styles.leaderboardUsername}>{entry.username}</Text>
                     <Text style={styles.leaderboardDistance}>{(entry.distanceMeters / 1000).toFixed(2)} km</Text>
                   </View>
-                  <Text style={styles.leaderboardPoints}>{entry.points} pts</Text>
+                  <Text style={styles.leaderboardPoints}>{entry.points} ball</Text>
                 </View>
               ))
             )}
@@ -858,7 +858,7 @@ function AppInner() {
             {isLoadingHistory ? (
               <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
             ) : historyRuns.length === 0 ? (
-              <Text style={styles.emptyText}>No runs yet</Text>
+              <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
             ) : (
               historyRuns.map((run) => (
                 <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
@@ -868,10 +868,10 @@ function AppInner() {
                       {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
                     </View>
                     <Text style={styles.runRowMeta}>
-                      {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
+                      {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                     </Text>
                   </View>
-                  <Text style={styles.runRowPoints}>+{run.pointsEarned} pts</Text>
+                  <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
                 </TouchableOpacity>
               ))
             )}
@@ -880,7 +880,7 @@ function AppInner() {
 
         {screen === 'plan' && (
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={styles.planIntro}>Pick a distance and get a loop route near you to follow.</Text>
+            <Text style={styles.planIntro}>Masofani tanlang va yaqiningizdan aylanma yo'nalish oling.</Text>
 
             <View style={styles.planDistanceRow}>
               {PLAN_DISTANCES.map((km) => (
@@ -923,7 +923,7 @@ function AppInner() {
                 <ActivityIndicator color="#000" />
               ) : (
                 <Text style={styles.primaryButtonText}>
-                  {suggestedRoute ? 'Suggest another route' : `Suggest a ${planTargetKm} km route near me`}
+                  {suggestedRoute ? "Boshqa yo'nalish taklif qilish" : `Yaqinimdan ${planTargetKm} km yo'nalish taklif qilish`}
                 </Text>
               )}
             </TouchableOpacity>
@@ -934,8 +934,8 @@ function AppInner() {
               <View style={{ marginTop: 20 }}>
                 <LeafletMap path={suggestedRoute.path} height={280} />
                 <View style={styles.statsGrid}>
-                  <StatCard icon="footsteps-outline" label="Route Distance" value={`${(suggestedRoute.distanceMeters / 1000).toFixed(2)} km`} width={screenWidth} />
-                  <StatCard icon="time-outline" label="Est. Walk Time" value={`~${Math.round(suggestedRoute.durationSec / 60)} min`} width={screenWidth} />
+                  <StatCard icon="footsteps-outline" label="Yo'nalish masofasi" value={`${(suggestedRoute.distanceMeters / 1000).toFixed(2)} km`} width={screenWidth} />
+                  <StatCard icon="time-outline" label="Taxminiy yurish vaqti" value={`~${Math.round(suggestedRoute.durationSec / 60)} daq`} width={screenWidth} />
                 </View>
                 <TouchableOpacity
                   style={[styles.primaryButton, { marginTop: 14 }]}
@@ -945,10 +945,10 @@ function AppInner() {
                   {isStartingRun ? (
                     <ActivityIndicator color="#000" />
                   ) : (
-                    <Text style={styles.primaryButtonText}>Start Running This Route</Text>
+                    <Text style={styles.primaryButtonText}>Shu yo'nalish bo'ylab yugurishni boshlash</Text>
                   )}
                 </TouchableOpacity>
-                <Text style={styles.planHint}>Recording works in the background — lock your screen and keep going.</Text>
+                <Text style={styles.planHint}>Yozib olish fon rejimida ishlaydi — ekranni qulflab, davom eting.</Text>
               </View>
             )}
           </ScrollView>
@@ -970,11 +970,11 @@ function AppInner() {
                 </View>
               </TouchableOpacity>
               <Text style={styles.profileUsernameLabel}>{currentUser.username}</Text>
-              <Text style={styles.profileHint}>Tap your photo to change it</Text>
+              <Text style={styles.profileHint}>O'zgartirish uchun rasmingizga bosing</Text>
             </View>
 
             <View style={styles.profileCard}>
-              <Text style={styles.profileSectionTitle}>Username</Text>
+              <Text style={styles.profileSectionTitle}>Foydalanuvchi nomi</Text>
               <View style={styles.inputWrapper}>
                 <Ionicons name="person-outline" size={18} color="#71717a" style={styles.inputIcon} />
                 <TextInput
@@ -994,18 +994,18 @@ function AppInner() {
                 onPress={handleSaveUsername}
                 disabled={isSavingUsername || !profileUsername.trim() || profileUsername === currentUser.username}
               >
-                {isSavingUsername ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Save Username</Text>}
+                {isSavingUsername ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Saqlash</Text>}
               </TouchableOpacity>
             </View>
 
             <View style={styles.profileCard}>
-              <Text style={styles.profileSectionTitle}>Change Password</Text>
+              <Text style={styles.profileSectionTitle}>Parolni o'zgartirish</Text>
               <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
                 <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
                 <TextInput
                   value={currentPasswordInput}
                   onChangeText={setCurrentPasswordInput}
-                  placeholder="Current password"
+                  placeholder="Joriy parol"
                   placeholderTextColor="#52525b"
                   style={styles.textInput}
                   secureTextEntry
@@ -1017,7 +1017,7 @@ function AppInner() {
                 <TextInput
                   value={newPasswordInput}
                   onChangeText={setNewPasswordInput}
-                  placeholder="New password"
+                  placeholder="Yangi parol"
                   placeholderTextColor="#52525b"
                   style={styles.textInput}
                   secureTextEntry
@@ -1029,7 +1029,7 @@ function AppInner() {
                 <TextInput
                   value={confirmPasswordInput}
                   onChangeText={setConfirmPasswordInput}
-                  placeholder="Confirm new password"
+                  placeholder="Yangi parolni tasdiqlang"
                   placeholderTextColor="#52525b"
                   style={styles.textInput}
                   secureTextEntry
@@ -1045,7 +1045,7 @@ function AppInner() {
                 onPress={handleChangePassword}
                 disabled={isSavingPassword || !currentPasswordInput || !newPasswordInput || !confirmPasswordInput}
               >
-                {isSavingPassword ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Update Password</Text>}
+                {isSavingPassword ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Parolni yangilash</Text>}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -1055,23 +1055,23 @@ function AppInner() {
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity onPress={() => setScreen('home')} style={styles.tabItem}>
           <Ionicons name={screen === 'home' ? 'home' : 'home-outline'} size={20} color={screen === 'home' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'home' && { color: '#22c55e' }]}>Home</Text>
+          <Text style={[styles.tabLabel, screen === 'home' && { color: '#22c55e' }]}>Bosh</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('leaderboard')} style={styles.tabItem}>
           <Ionicons name={screen === 'leaderboard' ? 'trophy' : 'trophy-outline'} size={20} color={screen === 'leaderboard' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'leaderboard' && { color: '#22c55e' }]}>Board</Text>
+          <Text style={[styles.tabLabel, screen === 'leaderboard' && { color: '#22c55e' }]}>Reyting</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('history')} style={styles.tabItem}>
           <Ionicons name={screen === 'history' ? 'time' : 'time-outline'} size={20} color={screen === 'history' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'history' && { color: '#22c55e' }]}>History</Text>
+          <Text style={[styles.tabLabel, screen === 'history' && { color: '#22c55e' }]}>Tarix</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('plan')} style={styles.tabItem}>
           <Ionicons name={screen === 'plan' ? 'map' : 'map-outline'} size={20} color={screen === 'plan' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'plan' && { color: '#22c55e' }]}>Plan</Text>
+          <Text style={[styles.tabLabel, screen === 'plan' && { color: '#22c55e' }]}>Reja</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setScreen('profile')} style={styles.tabItem}>
           <Ionicons name={screen === 'profile' ? 'person' : 'person-outline'} size={20} color={screen === 'profile' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'profile' && { color: '#22c55e' }]}>Profile</Text>
+          <Text style={[styles.tabLabel, screen === 'profile' && { color: '#22c55e' }]}>Profil</Text>
         </TouchableOpacity>
       </View>
 
@@ -1099,19 +1099,19 @@ function AppInner() {
                 ) : (
                   <View style={styles.liveMapPlaceholder}>
                     <ActivityIndicator color="#22c55e" />
-                    <Text style={styles.liveMapPlaceholderText}>Waiting for GPS…</Text>
+                    <Text style={styles.liveMapPlaceholderText}>GPS kutilmoqda…</Text>
                   </View>
                 )}
 
                 <SafeAreaView style={styles.liveOverlayTop} pointerEvents="box-none">
                   <BlurView intensity={70} tint="dark" style={styles.liveHeaderPill}>
                     <View style={styles.runModalLiveDot} />
-                    <Text style={styles.runModalLiveText}>RECORDING</Text>
+                    <Text style={styles.runModalLiveText}>YOZILMOQDA</Text>
                   </BlurView>
                   {liveSpeedWarning && (
                     <BlurView intensity={70} tint="dark" style={styles.liveWarningPill}>
                       <Ionicons name="warning-outline" size={16} color="#f59e0b" />
-                      <Text style={styles.runModalWarningText}>Too fast — this part isn&apos;t counted</Text>
+                      <Text style={styles.runModalWarningText}>Juda tez — bu qism hisoblanmaydi</Text>
                     </BlurView>
                   )}
                 </SafeAreaView>
@@ -1119,7 +1119,7 @@ function AppInner() {
                 <SafeAreaView style={styles.liveOverlayBottom} pointerEvents="box-none">
                   <BlurView intensity={80} tint="dark" style={styles.liveStatsPanel}>
                     <Text style={styles.runModalTime}>{mins}:{secs}</Text>
-                    <Text style={styles.runModalTimeLabel}>TIME</Text>
+                    <Text style={styles.runModalTimeLabel}>VAQT</Text>
                     <View style={styles.runModalStatsRow}>
                       <View style={styles.runModalStat}>
                         <Text style={styles.runModalStatValue}>{(liveStats.distanceMeters / 1000).toFixed(2)}</Text>
@@ -1127,11 +1127,11 @@ function AppInner() {
                       </View>
                       <View style={styles.runModalStat}>
                         <Text style={styles.runModalStatValue}>{liveStats.avgSpeedKmh || 0}</Text>
-                        <Text style={styles.runModalStatLabel}>AVG KM/H</Text>
+                        <Text style={styles.runModalStatLabel}>O'RT KM/S</Text>
                       </View>
                       <View style={styles.runModalStat}>
                         <Text style={styles.runModalStatValue}>{liveStats.maxSpeedKmh || 0}</Text>
-                        <Text style={styles.runModalStatLabel}>MAX KM/H</Text>
+                        <Text style={styles.runModalStatLabel}>MAKS KM/S</Text>
                       </View>
                     </View>
                   </BlurView>
@@ -1139,13 +1139,13 @@ function AppInner() {
                   <View style={styles.runModalActions}>
                     <TouchableOpacity onPress={handleDiscardRun} style={styles.runModalDiscardButton} disabled={isFinishingRun}>
                       <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                      <Text style={styles.runModalDiscardText}>Discard</Text>
+                      <Text style={styles.runModalDiscardText}>Bekor qilish</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={handleStopRun} style={styles.runModalStopButton} disabled={isFinishingRun}>
                       {isFinishingRun ? <ActivityIndicator color="#000" /> : (
                         <>
                           <Ionicons name="stop-circle" size={24} color="#000" />
-                          <Text style={styles.runModalStopText}>Stop & Save</Text>
+                          <Text style={styles.runModalStopText}>To'xtatish va saqlash</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -1165,7 +1165,7 @@ function AppInner() {
             <TouchableOpacity onPress={() => setSelectedRun(null)} style={{ position: 'absolute', left: 0 }}>
               <Ionicons name="chevron-down" size={26} color="#71717a" />
             </TouchableOpacity>
-            <Text style={styles.runModalLiveTextNeutral}>RUN DETAIL</Text>
+            <Text style={styles.runModalLiveTextNeutral}>YUGURISH TAFSILOTI</Text>
           </View>
 
           {isLoadingRunDetail || !selectedRun ? (
@@ -1184,7 +1184,7 @@ function AppInner() {
                 <View style={[styles.runModalWarning, { marginTop: 12, marginBottom: 4 }]}>
                   <Ionicons name="warning-outline" size={16} color="#f59e0b" />
                   <Text style={styles.runModalWarningText}>
-                    {selectedRun.flaggedSegments} part(s) of this run were too fast for running and weren&apos;t counted.
+                    Bu yugurishning {selectedRun.flaggedSegments} qismi yugurish uchun juda tez bo&apos;lgani uchun hisoblanmadi.
                   </Text>
                 </View>
               )}
@@ -1196,40 +1196,40 @@ function AppInner() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 16, height: 2, backgroundColor: '#22c55e', borderRadius: 2 }} />
-                        <Text style={{ color: '#71717a', fontSize: 11 }}>Actual</Text>
+                        <Text style={{ color: '#71717a', fontSize: 11 }}>Haqiqiy</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 16, height: 2, backgroundColor: '#71717a', borderRadius: 2 }} />
-                        <Text style={{ color: '#71717a', fontSize: 11 }}>Planned</Text>
+                        <Text style={{ color: '#71717a', fontSize: 11 }}>Rejalashtirilgan</Text>
                       </View>
                       {selectedRun.plannedDistanceMeters != null && (
                         <Text style={{ color: '#71717a', fontSize: 11, marginLeft: 'auto' }}>
-                          Planned {(selectedRun.plannedDistanceMeters / 1000).toFixed(2)} km
+                          Reja {(selectedRun.plannedDistanceMeters / 1000).toFixed(2)} km
                         </Text>
                       )}
                     </View>
                   )}
                 </View>
               ) : (
-                <Text style={[styles.emptyText, { marginTop: 16 }]}>No route data for this run</Text>
+                <Text style={[styles.emptyText, { marginTop: 16 }]}>Bu yugurish uchun yo'nalish ma'lumoti yo'q</Text>
               )}
 
               <View style={[styles.statsGrid, { marginTop: 20 }]}>
-                <StatCard icon="footsteps-outline" label="Distance" value={`${formatKm(selectedRun.distanceMeters)} km`} width={screenWidth} />
+                <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(selectedRun.distanceMeters)} km`} width={screenWidth} />
                 <StatCard
                   icon="time-outline"
-                  label="Duration"
+                  label="Davomiyligi"
                   value={`${Math.floor(selectedRun.durationSec / 60)}:${(selectedRun.durationSec % 60).toString().padStart(2, '0')}`}
                   width={screenWidth}
                 />
-                <StatCard icon="speedometer-outline" label="Avg Speed" value={`${selectedRun.avgSpeedKmh} km/h`} width={screenWidth} />
-                <StatCard icon="flash-outline" label="Max Speed" value={`${selectedRun.maxSpeedKmh} km/h`} width={screenWidth} />
+                <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${selectedRun.avgSpeedKmh} km/h`} width={screenWidth} />
+                <StatCard icon="flash-outline" label="Maksimal tezlik" value={`${selectedRun.maxSpeedKmh} km/h`} width={screenWidth} />
               </View>
 
               <View style={[styles.profileCard, { marginTop: 16 }]}>
                 <Text style={{ color: '#22c55e', fontSize: 28, fontWeight: '900' }}>+{selectedRun.pointsEarned}</Text>
                 <Text style={{ color: '#71717a', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 4 }}>
-                  POINTS EARNED
+                  TO'PLANGAN BALLAR
                 </Text>
               </View>
             </ScrollView>

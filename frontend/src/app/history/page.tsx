@@ -41,8 +41,8 @@ export default function HistoryPage() {
   return (
     <div className="space-y-8 pb-12 max-w-2xl">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">Run History</h1>
-        <p className="text-gray-400 text-sm mt-1">Every run you&apos;ve recorded</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-white md:text-4xl">Yugurish tarixi</h1>
+        <p className="text-gray-400 text-sm mt-1">Siz yozib olgan har bir yugurish</p>
       </div>
 
       {loading ? (
@@ -54,12 +54,12 @@ export default function HistoryPage() {
       ) : runs.length === 0 ? (
         <div className="glass-panel p-12 rounded-3xl text-center text-gray-500">
           <Footprints className="h-12 w-12 mx-auto text-gray-600 mb-4" />
-          <h3 className="text-lg font-semibold text-white">No runs yet</h3>
+          <h3 className="text-lg font-semibold text-white">Hali yugurishlar yo'q</h3>
           <p className="text-sm mt-2">
             <Link href="/plan-run" className="text-primary font-semibold hover:underline">
-              Plan a route
+              Yo'nalish rejalashtiring
             </Link>{' '}
-            or start a free run to see it here.
+            yoki bu yerda ko'rish uchun oddiy yugurishni boshlang.
           </p>
         </div>
       ) : (
@@ -79,10 +79,10 @@ export default function HistoryPage() {
                   {run.flaggedSegments > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
                 </div>
                 <div className="text-xs text-gray-400 mt-1">
-                  {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} min · {run.avgSpeedKmh} km/h
+                  {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                 </div>
               </div>
-              <div className="text-primary font-bold text-sm shrink-0">+{run.pointsEarned} pts</div>
+              <div className="text-primary font-bold text-sm shrink-0">+{run.pointsEarned} ball</div>
             </Link>
           ))}
         </div>

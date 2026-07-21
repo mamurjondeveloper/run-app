@@ -48,7 +48,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     } catch (err: any) {
       const message =
-        err.response?.data?.message || 'Login failed. Please check your credentials.';
+        err.response?.data?.message || "Kirishda xatolik. Ma'lumotlaringizni tekshiring.";
       set({ isLoading: false, error: message });
       return false;
     }
@@ -71,7 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return true;
     } catch (err: any) {
       const message =
-        err.response?.data?.message || 'Registration failed. Please check your details.';
+        err.response?.data?.message || "Ro'yxatdan o'tishda xatolik. Ma'lumotlaringizni tekshiring.";
       set({ isLoading: false, error: message });
       return false;
     }
