@@ -46,6 +46,8 @@ interface UserInfo {
 interface RunDetail extends Run {
   path: RunPoint[];
   flaggedSegments: number;
+  plannedRoutePath?: RunPoint[] | null;
+  plannedDistanceMeters?: number | null;
 }
 
 interface SuggestedRoute {
@@ -140,6 +142,7 @@ function AppInner() {
   const [isLoadingRunDetail, setIsLoadingRunDetail] = useState(false);
 
   const [planTargetKm, setPlanTargetKm] = useState(5);
+  const [manualPlanKmInput, setManualPlanKmInput] = useState('5');
   const [isLocatingForPlan, setIsLocatingForPlan] = useState(false);
   const [isSuggestingRoute, setIsSuggestingRoute] = useState(false);
   const [suggestedRoute, setSuggestedRoute] = useState<SuggestedRoute | null>(null);
@@ -441,7 +444,7 @@ function AppInner() {
     }
   };
 
-  const handleStartRun = async () => {
+  const handleStartRun = async (plannedRoute?: SuggestedRoute) => {
     setIsStartingRun(true);
     try {
       const foreground = await Location.requestForegroundPermissionsAsync();
@@ -458,7 +461,9 @@ function AppInner() {
         return;
       }
 
-      const res = await getApi().post('/runs/start');
+      const res = await getApi().post('/runs/start', plannedRoute
+        ? { plannedRoutePath: plannedRoute.path, plannedDistanceMeters: plannedRoute.distanceMeters }
+        : {});
       const runId = res.data.id as string;
       const startedAt = Date.now();
 
@@ -694,7 +699,7 @@ function AppInner() {
               <>
                 <TouchableOpacity
                   style={[styles.startRunButton, currentUser.isBanned && { opacity: 0.4 }]}
-                  onPress={handleStartRun}
+                  onPress={() => handleStartRun()}
                   disabled={isStartingRun || currentUser.isBanned}
                 >
                   {isStartingRun ? (
@@ -847,7 +852,10 @@ function AppInner() {
               {PLAN_DISTANCES.map((km) => (
                 <TouchableOpacity
                   key={km}
-                  onPress={() => setPlanTargetKm(km)}
+                  onPress={() => {
+                    setPlanTargetKm(km);
+                    setManualPlanKmInput(String(km));
+                  }}
                   style={[styles.planDistanceChip, planTargetKm === km && styles.planDistanceChipActive]}
                 >
                   <Text style={[styles.planDistanceChipText, planTargetKm === km && styles.planDistanceChipTextActive]}>
@@ -855,6 +863,21 @@ function AppInner() {
                   </Text>
                 </TouchableOpacity>
               ))}
+              <View style={styles.planManualKmWrapper}>
+                <TextInput
+                  value={manualPlanKmInput}
+                  onChangeText={(text) => {
+                    setManualPlanKmInput(text);
+                    const parsed = parseFloat(text);
+                    if (!Number.isNaN(parsed) && parsed >= 0.5 && parsed <= 42) {
+                      setPlanTargetKm(parsed);
+                    }
+                  }}
+                  keyboardType="decimal-pad"
+                  style={styles.planManualKmInput}
+                />
+                <Text style={styles.planManualKmLabel}>km</Text>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -865,7 +888,9 @@ function AppInner() {
               {isLocatingForPlan || isSuggestingRoute ? (
                 <ActivityIndicator color="#000" />
               ) : (
-                <Text style={styles.primaryButtonText}>Suggest a {planTargetKm} km route near me</Text>
+                <Text style={styles.primaryButtonText}>
+                  {suggestedRoute ? 'Suggest another route' : `Suggest a ${planTargetKm} km route near me`}
+                </Text>
               )}
             </TouchableOpacity>
 
@@ -878,7 +903,18 @@ function AppInner() {
                   <StatCard icon="footsteps-outline" label="Route Distance" value={`${(suggestedRoute.distanceMeters / 1000).toFixed(2)} km`} width={screenWidth} />
                   <StatCard icon="time-outline" label="Est. Walk Time" value={`~${Math.round(suggestedRoute.durationSec / 60)} min`} width={screenWidth} />
                 </View>
-                <Text style={styles.planHint}>Hit Start Run on Home and follow this loop to hit your target distance.</Text>
+                <TouchableOpacity
+                  style={[styles.primaryButton, { marginTop: 14 }]}
+                  onPress={() => handleStartRun(suggestedRoute)}
+                  disabled={isStartingRun || currentUser.isBanned}
+                >
+                  {isStartingRun ? (
+                    <ActivityIndicator color="#000" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Start Running This Route</Text>
+                  )}
+                </TouchableOpacity>
+                <Text style={styles.planHint}>Recording works in the background — lock your screen and keep going.</Text>
               </View>
             )}
           </ScrollView>
@@ -1104,7 +1140,24 @@ function AppInner() {
 
               {selectedRun.path.length > 1 ? (
                 <View style={{ marginTop: 16 }}>
-                  <LeafletMap path={selectedRun.path} height={280} />
+                  <LeafletMap path={selectedRun.path} secondaryPath={selectedRun.plannedRoutePath ?? undefined} height={280} />
+                  {!!selectedRun.plannedRoutePath?.length && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 16, height: 2, backgroundColor: '#22c55e', borderRadius: 2 }} />
+                        <Text style={{ color: '#71717a', fontSize: 11 }}>Actual</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <View style={{ width: 16, height: 2, backgroundColor: '#71717a', borderRadius: 2 }} />
+                        <Text style={{ color: '#71717a', fontSize: 11 }}>Planned</Text>
+                      </View>
+                      {selectedRun.plannedDistanceMeters != null && (
+                        <Text style={{ color: '#71717a', fontSize: 11, marginLeft: 'auto' }}>
+                          Planned {(selectedRun.plannedDistanceMeters / 1000).toFixed(2)} km
+                        </Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               ) : (
                 <Text style={[styles.emptyText, { marginTop: 16 }]}>No route data for this run</Text>
@@ -1389,6 +1442,19 @@ const styles = StyleSheet.create({
   planDistanceChipActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
   planDistanceChipText: { color: '#71717a', fontSize: 13, fontWeight: 'bold' },
   planDistanceChipTextActive: { color: '#000' },
+  planManualKmWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  planManualKmInput: { color: '#fff', fontWeight: '700', fontSize: 14, minWidth: 32, padding: 0 },
+  planManualKmLabel: { color: '#71717a', fontSize: 12 },
   planError: { color: '#ef4444', fontSize: 12, textAlign: 'center', marginTop: 12 },
   planHint: { color: '#71717a', fontSize: 11, textAlign: 'center', marginTop: 12, lineHeight: 16 },
 });

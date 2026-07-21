@@ -34,6 +34,8 @@ model Run {
   pointsEarned   Int       @default(0)
   path           String? // JSON-encoded [{lat,lng,ts,speedKmh}, ...]
   flaggedSegments Int      @default(0) // segments excluded from distance for exceeding running speed
+  plannedRoutePath      String? // JSON-encoded [{lat,lng}, ...] suggested route this run was started from, if any
+  plannedDistanceMeters Float?
   createdAt      DateTime  @default(now())
 
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)

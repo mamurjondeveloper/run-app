@@ -18,6 +18,8 @@ interface RunDetail {
   pointsEarned: number;
   flaggedSegments: number;
   path: { lat: number; lng: number }[];
+  plannedRoutePath: { lat: number; lng: number }[] | null;
+  plannedDistanceMeters: number | null;
 }
 
 export default function RunDetailPage() {
@@ -89,7 +91,18 @@ export default function RunDetailPage() {
       )}
 
       {run.path.length > 1 ? (
-        <RouteMap path={run.path} />
+        <div className="space-y-2">
+          <RouteMap path={run.path} secondaryPath={run.plannedRoutePath ?? undefined} />
+          {run.plannedRoutePath && run.plannedRoutePath.length > 0 && (
+            <div className="flex items-center gap-4 text-xs text-gray-400 px-1">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-primary rounded-full" /> Actual</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-0.5 w-4 bg-zinc-500 rounded-full" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #71717a 0 4px, transparent 4px 7px)' }} /> Planned route</span>
+              {run.plannedDistanceMeters != null && (
+                <span className="ml-auto">Planned {(run.plannedDistanceMeters / 1000).toFixed(2)} km</span>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="glass-panel p-8 rounded-3xl text-center text-gray-500 text-sm">No route data for this run</div>
       )}

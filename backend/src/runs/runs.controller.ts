@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RunsService } from './runs.service';
 import { FinishRunDto } from './dto/finish-run.dto';
+import { StartRunDto } from './dto/start-run.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 
@@ -10,8 +11,8 @@ export class RunsController {
   constructor(private readonly runsService: RunsService) {}
 
   @Post('start')
-  async start(@CurrentUser() user: any) {
-    return this.runsService.startRun(user.id);
+  async start(@CurrentUser() user: any, @Body() dto: StartRunDto) {
+    return this.runsService.startRun(user.id, dto);
   }
 
   @Patch(':id/finish')

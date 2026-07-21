@@ -13,13 +13,17 @@ interface RouteMapProps {
   color?: string;
   height?: number;
   showEndpoints?: boolean;
+  /** Optional second route (e.g. the originally planned route) drawn as a dashed grey line under the main path. */
+  secondaryPath?: MapPoint[];
 }
 
-export default function RouteMap({ path, color = '#22c55e', height = 300, showEndpoints = true }: RouteMapProps) {
+export default function RouteMap({ path, color = '#22c55e', height = 300, showEndpoints = true, secondaryPath }: RouteMapProps) {
   if (path.length === 0) return null;
 
   const center: [number, number] = [path[0].lat, path[0].lng];
   const positions: [number, number][] = path.map((p) => [p.lat, p.lng]);
+  const secondaryPositions: [number, number][] | null =
+    secondaryPath && secondaryPath.length > 0 ? secondaryPath.map((p) => [p.lat, p.lng]) : null;
 
   return (
     <MapContainer
@@ -32,6 +36,9 @@ export default function RouteMap({ path, color = '#22c55e', height = 300, showEn
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      {secondaryPositions && (
+        <Polyline positions={secondaryPositions} pathOptions={{ color: '#a1a1aa', weight: 3, dashArray: '6 8' }} />
+      )}
       <Polyline positions={positions} pathOptions={{ color, weight: 4 }} />
       {showEndpoints && (
         <>

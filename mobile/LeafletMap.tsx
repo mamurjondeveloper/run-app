@@ -11,16 +11,19 @@ interface LeafletMapProps {
   path: MapPoint[];
   height?: number;
   color?: string;
+  /** Optional second route (e.g. the originally planned route) drawn as a dashed grey line under the main path. */
+  secondaryPath?: MapPoint[];
 }
 
 // Self-contained Leaflet map loaded from CDN inside a WebView — avoids
 // needing react-native-maps + a Google Maps API key just to draw a line on
 // a map, and keeps the visual style consistent with the web app's map.
-export default function LeafletMap({ path, height = 260, color = '#22c55e' }: LeafletMapProps) {
+export default function LeafletMap({ path, height = 260, color = '#22c55e', secondaryPath }: LeafletMapProps) {
   const html = useMemo(() => {
     if (path.length === 0) return '';
     const coords = path.map((p) => [p.lat, p.lng]);
     const center = coords[0];
+    const secondaryCoords = secondaryPath && secondaryPath.length > 0 ? secondaryPath.map((p) => [p.lat, p.lng]) : null;
 
     return `
 <!DOCTYPE html>
@@ -35,8 +38,12 @@ export default function LeafletMap({ path, height = 260, color = '#22c55e' }: Le
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const coords = ${JSON.stringify(coords)};
+    const secondaryCoords = ${JSON.stringify(secondaryCoords)};
     const map = L.map('map', { zoomControl: false, attributionControl: false }).setView(${JSON.stringify(center)}, 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    if (secondaryCoords) {
+      L.polyline(secondaryCoords, { color: '#a1a1aa', weight: 3, dashArray: '6 8' }).addTo(map);
+    }
     const line = L.polyline(coords, { color: '${color}', weight: 4 }).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [24, 24] });
     L.circleMarker(coords[0], { radius: 6, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1 }).addTo(map);
@@ -44,7 +51,7 @@ export default function LeafletMap({ path, height = 260, color = '#22c55e' }: Le
   </script>
 </body>
 </html>`;
-  }, [path, color]);
+  }, [path, color, secondaryPath]);
 
   if (path.length === 0) return null;
 

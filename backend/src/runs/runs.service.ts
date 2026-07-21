@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { FinishRunDto, RunPointDto } from './dto/finish-run.dto';
+import { StartRunDto } from './dto/start-run.dto';
 
 // Faster than this is not running — a bus, metro, or car. Segments implying a
 // speed above this are excluded from the distance/points calculation instead
@@ -95,7 +96,7 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
 export class RunsService {
   constructor(private prisma: PrismaService) {}
 
-  async startRun(userId: string) {
+  async startRun(userId: string, dto?: StartRunDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.isBanned) {
       throw new ForbiddenException(
@@ -108,12 +109,22 @@ export class RunsService {
       where: { userId, status: 'in_progress' },
     });
     if (existing) {
-      return existing;
+      return {
+        ...existing,
+        plannedRoutePath: existing.plannedRoutePath ? JSON.parse(existing.plannedRoutePath) : null,
+      };
     }
 
-    return this.prisma.run.create({
-      data: { userId, status: 'in_progress' },
+    const run = await this.prisma.run.create({
+      data: {
+        userId,
+        status: 'in_progress',
+        plannedRoutePath: dto?.plannedRoutePath ? JSON.stringify(dto.plannedRoutePath) : null,
+        plannedDistanceMeters: dto?.plannedDistanceMeters ?? null,
+      },
     });
+
+    return { ...run, plannedRoutePath: dto?.plannedRoutePath ?? null };
   }
 
   async finishRun(userId: string, runId: string, dto: FinishRunDto) {
@@ -208,6 +219,7 @@ export class RunsService {
 
     return {
       ...updatedRun,
+      plannedRoutePath: updatedRun.plannedRoutePath ? JSON.parse(updatedRun.plannedRoutePath) : null,
       warning:
         computed.flaggedSegments > 0
           ? `${computed.flaggedSegments} part(s) of this run were faster than running speed and were not counted.`
@@ -249,6 +261,7 @@ export class RunsService {
     return {
       ...run,
       path: run.path ? JSON.parse(run.path) : [],
+      plannedRoutePath: run.plannedRoutePath ? JSON.parse(run.plannedRoutePath) : null,
     };
   }
 }
