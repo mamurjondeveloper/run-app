@@ -40,7 +40,8 @@
           "isAndroidBackgroundLocationEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "./plugins/withPictureInPicture.js"
     ]
   }
 }
