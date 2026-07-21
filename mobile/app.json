@@ -13,7 +13,8 @@
       "package": "com.xisd.run",
       "permissions": [
         "INTERNET",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0a0f0a",
