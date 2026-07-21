@@ -302,15 +302,23 @@ export default function LiveRunPage() {
         )}
       </div>
 
-      <RouteMap
-        path={livePath.length > 1 ? livePath : runMeta.plannedRoutePath ?? []}
-        secondaryPath={livePath.length > 1 ? runMeta.plannedRoutePath ?? undefined : undefined}
-        height={300}
-      />
-      {livePath.length < 2 && (
-        <p className="text-xs text-gray-500 text-center">
-          {runMeta.plannedRoutePath ? 'Waiting for a GPS fix… follow the dashed planned route once tracking starts.' : 'Waiting for a GPS fix…'}
-        </p>
+      {livePath.length > 0 ? (
+        <RouteMap
+          path={livePath}
+          secondaryPath={runMeta.plannedRoutePath ?? undefined}
+          followLatest
+          height={300}
+        />
+      ) : runMeta.plannedRoutePath ? (
+        <>
+          <RouteMap path={runMeta.plannedRoutePath} height={300} />
+          <p className="text-xs text-gray-500 text-center">Waiting for a GPS fix… follow the dashed planned route once tracking starts.</p>
+        </>
+      ) : (
+        <div className="glass-panel flex flex-col items-center justify-center gap-3 text-gray-500 text-sm" style={{ height: 300 }}>
+          <Loader2 className="h-6 w-6 animate-spin" />
+          Waiting for a GPS fix…
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-3">
