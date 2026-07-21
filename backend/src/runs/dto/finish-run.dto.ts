@@ -14,6 +14,10 @@ export class RunPointDto {
   @IsOptional()
   @IsNumber()
   speedKmh?: number;
+
+  @IsOptional()
+  @IsNumber()
+  alt?: number;
 }
 
 export class FinishRunDto {

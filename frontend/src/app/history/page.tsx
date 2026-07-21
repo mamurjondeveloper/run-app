@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import api from '@/services/api';
-import { Footprints, AlertTriangle } from 'lucide-react';
+import { Footprints, AlertTriangle, MapPin } from 'lucide-react';
 
 interface Run {
   id: string;
@@ -13,6 +13,7 @@ interface Run {
   avgSpeedKmh: number;
   pointsEarned: number;
   flaggedSegments: number;
+  plannedRoutePath?: unknown;
 }
 
 function formatKm(meters: number) {
@@ -54,7 +55,12 @@ export default function HistoryPage() {
         <div className="glass-panel p-12 rounded-3xl text-center text-gray-500">
           <Footprints className="h-12 w-12 mx-auto text-gray-600 mb-4" />
           <h3 className="text-lg font-semibold text-white">No runs yet</h3>
-          <p className="text-sm mt-2">Record a run from the mobile app to see it here.</p>
+          <p className="text-sm mt-2">
+            <Link href="/plan-run" className="text-primary font-semibold hover:underline">
+              Plan a route
+            </Link>{' '}
+            or start a free run to see it here.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -69,6 +75,7 @@ export default function HistoryPage() {
                   <span className="text-sm font-semibold text-white">
                     {new Date(run.startedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </span>
+                  {!!run.plannedRoutePath && <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />}
                   {run.flaggedSegments > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
                 </div>
                 <div className="text-xs text-gray-400 mt-1">

@@ -38,6 +38,7 @@ interface ComputedRunStats {
   avgSpeedKmh: number;
   maxSpeedKmh: number;
   flaggedSegments: number;
+  elevationGainM: number;
 }
 
 // The server is the source of truth for run stats: it recomputes everything
@@ -55,6 +56,7 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
 
   let distanceMeters = 0;
   let flaggedSegments = 0;
+  let elevationGainM = 0;
 
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1];
@@ -74,6 +76,11 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     }
 
     distanceMeters += segmentMeters;
+    // Altitude is best-effort (many devices/browsers never report it) - only
+    // count a gain when both points in the segment actually have a reading.
+    if (typeof prev.alt === 'number' && typeof curr.alt === 'number' && curr.alt > prev.alt) {
+      elevationGainM += curr.alt - prev.alt;
+    }
   }
 
   const durationSec = Math.max(0, Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000));
@@ -89,6 +96,7 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     avgSpeedKmh: Math.round(avgSpeedKmh * 10) / 10,
     maxSpeedKmh: Math.round(maxSpeedKmh * 10) / 10,
     flaggedSegments,
+    elevationGainM: Math.round(elevationGainM),
   };
 }
 
@@ -188,6 +196,7 @@ export class RunsService {
           maxSpeedKmh: computed.maxSpeedKmh,
           pointsEarned,
           flaggedSegments: computed.flaggedSegments,
+          elevationGainM: computed.elevationGainM,
           path: JSON.stringify(dto.path),
         },
       }),
@@ -202,6 +211,7 @@ export class RunsService {
           longestStreakDays,
           lastRunDate: now,
           speedViolationCount,
+          totalElevationM: stats.totalElevationM + computed.elevationGainM,
         },
       }),
       ...(shouldBan

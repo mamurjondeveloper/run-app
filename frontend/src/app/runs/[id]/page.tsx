@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import api from '@/services/api';
-import { ArrowLeft, Footprints, Gauge, Clock, Zap, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Footprints, Gauge, Clock, Zap, AlertTriangle, Mountain } from 'lucide-react';
 
 const RouteMap = dynamic(() => import('@/components/RouteMap'), { ssr: false });
 
@@ -20,6 +20,7 @@ interface RunDetail {
   path: { lat: number; lng: number }[];
   plannedRoutePath: { lat: number; lng: number }[] | null;
   plannedDistanceMeters: number | null;
+  elevationGainM: number;
 }
 
 export default function RunDetailPage() {
@@ -112,6 +113,7 @@ export default function RunDetailPage() {
         <Stat icon={Clock} label="Duration" value={`${Math.floor(run.durationSec / 60)}:${(run.durationSec % 60).toString().padStart(2, '0')}`} />
         <Stat icon={Gauge} label="Avg Speed" value={`${run.avgSpeedKmh} km/h`} />
         <Stat icon={Zap} label="Max Speed" value={`${run.maxSpeedKmh} km/h`} />
+        {run.elevationGainM > 0 && <Stat icon={Mountain} label="Elevation Gain" value={`${Math.round(run.elevationGainM)} m`} />}
       </div>
 
       <div className="glass-panel p-6 rounded-3xl text-center">

@@ -36,6 +36,7 @@ model Run {
   flaggedSegments Int      @default(0) // segments excluded from distance for exceeding running speed
   plannedRoutePath      String? // JSON-encoded [{lat,lng}, ...] suggested route this run was started from, if any
   plannedDistanceMeters Float?
+  elevationGainM Float     @default(0)
   createdAt      DateTime  @default(now())
 
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -55,6 +56,7 @@ model UserStats {
   longestStreakDays Int       @default(0)
   lastRunDate       DateTime?
   speedViolationCount Int     @default(0) // runs with a suspiciously fast segment - too many trips a ban
+  totalElevationM   Float     @default(0)
   updatedAt         DateTime  @updatedAt
 
   user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
