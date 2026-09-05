@@ -14,6 +14,7 @@ import {
   Platform,
   useWindowDimensions,
   Modal,
+  Animated,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-image instead of RN's built-in Image for avatars: it caches decoded
@@ -22,11 +23,21 @@ import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import axios from 'axios';
+import { useFonts, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
+import { Sora_600SemiBold, Sora_800ExtraBold } from '@expo-google-fonts/sora';
+import * as SplashScreen from 'expo-splash-screen';
+
+// Keep the native splash (the branded green-on-dark footsteps mark) up
+// until fonts are loaded and the saved session has been checked - without
+// this, Expo hides it as soon as the first frame is up, which used to be a
+// blank/system-font flash before RunApp's own UI was actually ready.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
   LOCATION_TASK_NAME,
   ACTIVE_RUN_ID_KEY,
@@ -46,6 +57,12 @@ import {
   dismissRunNotification,
   refreshDailyRecapNotification,
 } from './notifications';
+import { colors, font, radius, space, shadow } from './theme';
+import PressableScale from './ui/PressableScale';
+import EmptyState from './ui/EmptyState';
+import SegmentedControl from './ui/SegmentedControl';
+import Avatar from './ui/Avatar';
+import PulseDot from './ui/PulseDot';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -142,6 +159,25 @@ function formatKm(meters: number) {
   return (meters / 1000).toFixed(2);
 }
 
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 6) return 'Xayrli tun';
+  if (h < 12) return 'Xayrli tong';
+  if (h < 18) return 'Xayrli kun';
+  return 'Xayrli kech';
+}
+
+function formatRunDay(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (sameDay(d, now)) return 'Bugun';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return 'Kecha';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
 function lastSegmentTooFast(points: RunPoint[]): boolean {
   if (points.length < 2) return false;
   const a = points[points.length - 2];
@@ -162,6 +198,15 @@ function lastSegmentTooFast(points: RunPoint[]): boolean {
 function AppInner() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+    Sora_600SemiBold,
+    Sora_800ExtraBold,
+  });
 
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -606,7 +651,7 @@ function AppInner() {
         foregroundService: {
           notificationTitle: 'RunApp',
           notificationBody: 'Yugurishingiz yozilmoqda…',
-          notificationColor: '#22c55e',
+          notificationColor: colors.accent,
         },
         showsBackgroundLocationIndicator: true,
         pausesUpdatesAutomatically: false,
@@ -713,93 +758,110 @@ function AppInner() {
     ]);
   };
 
-  if (isInitializing) {
+  const isReady = !isInitializing && fontsLoaded;
+
+  useEffect(() => {
+    if (isReady) SplashScreen.hideAsync().catch(() => {});
+  }, [isReady]);
+
+  if (!isReady) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#22c55e" />
+        <Ionicons name="footsteps" size={40} color={colors.accent} />
+        <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: space.lg }} />
       </View>
     );
   }
 
   if (!token || !currentUser) {
     return (
-      <SafeAreaView style={styles.loginContainer}>
+      <View style={styles.loginContainer}>
         <StatusBar barStyle="light-content" />
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <ScrollView contentContainerStyle={styles.loginScroll} keyboardShouldPersistTaps="handled">
-            <View style={styles.loginCard}>
+        {/* Soft off-center glow instead of a flat black canvas - the single
+            biggest "someone designed this" signal a login screen can carry
+            for free. */}
+        <View style={styles.loginGlow} pointerEvents="none" />
+        <SafeAreaView style={{ flex: 1 }}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <ScrollView contentContainerStyle={styles.loginScroll} keyboardShouldPersistTaps="handled">
               <View style={styles.logoContainer}>
-                <Ionicons name="footsteps" size={54} color="#22c55e" />
+                <LinearGradient colors={[colors.accent, colors.accentDeep]} style={styles.logoBadge}>
+                  <Ionicons name="footsteps" size={34} color={colors.onAccent} />
+                </LinearGradient>
                 <Text style={styles.logoText}>RunApp</Text>
                 <Text style={styles.logoSubtext}>
                   {authMode === 'login' ? "Yuguring. Musobaqalashing. G'oling." : 'Hisobingizni yarating'}
                 </Text>
               </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>FOYDALANUVCHI NOMI</Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons name="person-outline" size={18} color="#71717a" style={styles.inputIcon} />
-                  <TextInput
-                    value={username}
-                    onChangeText={setUsername}
-                    placeholder="foydalanuvchi nomi"
-                    placeholderTextColor="#52525b"
-                    style={styles.textInput}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                  />
+              <View style={styles.loginCard}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>FOYDALANUVCHI NOMI</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="person-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
+                    <TextInput
+                      value={username}
+                      onChangeText={setUsername}
+                      placeholder="foydalanuvchi nomi"
+                      placeholderTextColor={colors.textFaint}
+                      style={styles.textInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="next"
+                    />
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PAROL</Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
-                  <TextInput
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="••••••••"
-                    placeholderTextColor="#52525b"
-                    style={styles.textInput}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="done"
-                    onSubmitEditing={handleAuthSubmit}
-                  />
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
-                    <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#71717a" />
-                  </TouchableOpacity>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>PAROL</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="parolingiz"
+                      placeholderTextColor={colors.textFaint}
+                      style={styles.textInput}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      onSubmitEditing={handleAuthSubmit}
+                    />
+                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={10}>
+                      <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={colors.textFaint} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
+
+                <PressableScale onPress={handleAuthSubmit} disabled={isSubmittingAuth} style={{ marginTop: space.sm }}>
+                  <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                    {isSubmittingAuth ? (
+                      <ActivityIndicator color={colors.onAccent} />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>
+                        {authMode === 'login' ? 'Kirish' : "Ro'yxatdan o'tish"}
+                      </Text>
+                    )}
+                  </LinearGradient>
+                </PressableScale>
+
+                <TouchableOpacity
+                  style={styles.authModeToggle}
+                  onPress={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
+                >
+                  <Text style={styles.authModeToggleText}>
+                    {authMode === 'login' ? "Yangimisiz? " : 'Hisobingiz bormi? '}
+                    <Text style={styles.authModeToggleLink}>
+                      {authMode === 'login' ? 'Hisob yarating' : 'Kirish'}
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity style={styles.primaryButton} onPress={handleAuthSubmit} disabled={isSubmittingAuth}>
-                {isSubmittingAuth ? (
-                  <ActivityIndicator color="#000" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {authMode === 'login' ? 'Kirish' : "Ro'yxatdan o'tish"}
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.authModeToggle}
-                onPress={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-              >
-                <Text style={styles.authModeToggleText}>
-                  {authMode === 'login' ? "Yangimisiz? " : 'Hisobingiz bormi? '}
-                  <Text style={styles.authModeToggleLink}>
-                    {authMode === 'login' ? 'Hisob yarating' : 'Kirish'}
-                  </Text>
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </View>
     );
   }
 
@@ -808,21 +870,27 @@ function AppInner() {
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {screen === 'home' && 'RunApp'}
-          {screen === 'leaderboard' && 'Reyting'}
-          {screen === 'history' && 'Tarix'}
-          {screen === 'plan' && 'Yugurish rejalashtirish'}
-          {screen === 'profile' && 'Profil'}
-        </Text>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Ionicons name="log-out-outline" size={16} color="#ef4444" />
+        {screen === 'home' ? (
+          <View>
+            <Text style={styles.headerGreeting}>{greeting()}</Text>
+            <Text style={styles.headerTitle}>{currentUser.username}</Text>
+          </View>
+        ) : (
+          <Text style={styles.headerTitle}>
+            {screen === 'leaderboard' && 'Reyting'}
+            {screen === 'history' && 'Tarix'}
+            {screen === 'plan' && 'Yugurish rejalashtirish'}
+            {screen === 'profile' && 'Profil'}
+          </Text>
+        )}
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton} hitSlop={8}>
+          <Ionicons name="log-out-outline" size={18} color={colors.danger} />
         </TouchableOpacity>
       </View>
 
       {currentUser.isBanned && (
         <View style={styles.bannedBanner}>
-          <Ionicons name="shield-outline" size={16} color="#ef4444" />
+          <Ionicons name="shield-outline" size={16} color={colors.danger} />
           <Text style={styles.bannedBannerText}>
             {currentUser.bannedReason || "Hisobingiz shubhali tezlik faoliyati uchun to'xtatilgan."} Yangi yugurishlar yuborilishi mumkin emas.
           </Text>
@@ -836,64 +904,77 @@ function AppInner() {
             showsVerticalScrollIndicator={false}
           >
             {homeError && (
-              <TouchableOpacity onPress={fetchHome} style={{ paddingVertical: 10 }}>
-                <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
-                  Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
-                </Text>
+              <TouchableOpacity onPress={fetchHome} style={styles.inlineRetry}>
+                <Ionicons name="refresh-outline" size={14} color={colors.warning} />
+                <Text style={styles.inlineRetryText}>Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.</Text>
               </TouchableOpacity>
             )}
             {isLoadingHome && !stats ? (
-              <ActivityIndicator color="#22c55e" style={{ marginTop: 40 }} />
+              <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />
             ) : (
               <>
-                <TouchableOpacity
-                  style={[styles.startRunButton, currentUser.isBanned && { opacity: 0.4 }]}
+                <PressableScale
                   onPress={() => handleStartRun()}
                   disabled={isStartingRun || currentUser.isBanned}
+                  style={currentUser.isBanned ? { opacity: 0.4 } : undefined}
                 >
-                  {isStartingRun ? (
-                    <ActivityIndicator color="#000" />
-                  ) : (
-                    <>
-                      <Ionicons name="play-circle" size={26} color="#000" />
-                      <Text style={styles.startRunButtonText}>Yugurishni boshlash</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                  <LinearGradient
+                    colors={[colors.accent, colors.accentDeep]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.startRunButton}
+                  >
+                    {isStartingRun ? (
+                      <ActivityIndicator color={colors.onAccent} />
+                    ) : (
+                      <>
+                        <View style={styles.startRunIconWrap}>
+                          <Ionicons name="play" size={20} color={colors.onAccent} />
+                        </View>
+                        <Text style={styles.startRunButtonText}>Yugurishni boshlash</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </PressableScale>
 
                 <View style={styles.statsGrid}>
-                  <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} width={screenWidth} />
-                  <StatCard icon="trophy-outline" label="Ballar" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} />
-                  <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0} km/h`} width={screenWidth} />
-                  {/* Was `${n}k` - read at a glance as a magnitude suffix (like
-                      1k = 1000) rather than "kun" (days), confirmed confusing
-                      on-device. */}
-                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0} kun`} width={screenWidth} />
+                  <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)}`} unit="km" width={screenWidth} />
+                  <StatCard icon="trophy-outline" label="Ballar" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} tint="amber" />
+                  <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0}`} unit="km/h" width={screenWidth} />
+                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0}`} unit="kun" width={screenWidth} tint="amber" />
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>So'nggi yugurishlar</Text>
-                  <TouchableOpacity onPress={() => setScreen('history')}>
-                    <Text style={styles.viewAllLink}>Barchasini ko'rish</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>So'nggi yugurishlar</Text>
+                  <TouchableOpacity onPress={() => setScreen('history')} hitSlop={6}>
+                    <Text style={styles.viewAllLink}>Barchasi</Text>
                   </TouchableOpacity>
                 </View>
                 {recentRuns.length === 0 ? (
-                  <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
+                  <EmptyState
+                    icon="footsteps-outline"
+                    title="Hali yugurishlar yo'q"
+                    subtitle="Birinchi yugurishingizni boshlab, statistikangizni shu yerda kuzating."
+                    compact
+                  />
                 ) : (
                   recentRuns.map((run) => (
-                    <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
-                      <View>
+                    <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)} activeOpacity={0.7}>
+                      <View style={styles.runRowIconWrap}>
+                        <Ionicons name="footsteps" size={18} color={colors.accent} />
+                      </View>
+                      <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={styles.runRowDate}>
-                            {new Date(run.startedAt).toLocaleDateString()}
-                          </Text>
-                          {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
+                          <Text style={styles.runRowDate}>{formatRunDay(run.startedAt)}</Text>
+                          {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color={colors.warning} />}
                         </View>
                         <Text style={styles.runRowMeta}>
                           {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                         </Text>
                       </View>
-                      <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
+                      <View style={styles.runRowPointsPill}>
+                        <Text style={styles.runRowPoints}>+{run.pointsEarned}</Text>
+                      </View>
                     </TouchableOpacity>
                   ))
                 )}
@@ -905,75 +986,87 @@ function AppInner() {
         {screen === 'leaderboard' && (
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             {leaderboardError && (
-              <TouchableOpacity onPress={fetchLeaderboard} style={{ paddingVertical: 10 }}>
-                <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
-                  Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
-                </Text>
+              <TouchableOpacity onPress={fetchLeaderboard} style={styles.inlineRetry}>
+                <Ionicons name="refresh-outline" size={14} color={colors.warning} />
+                <Text style={styles.inlineRetryText}>Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.</Text>
               </TouchableOpacity>
             )}
-            <View style={styles.periodTabs}>
-              {(['daily', 'weekly', 'alltime'] as Period[]).map((p) => (
-                <TouchableOpacity
-                  key={p}
-                  onPress={() => setPeriod(p)}
-                  style={[styles.periodTab, period === p && styles.periodTabActive]}
-                >
-                  <Text style={[styles.periodTabText, period === p && styles.periodTabTextActive]}>
-                    {p === 'daily' ? 'Kunlik' : p === 'weekly' ? 'Haftalik' : 'Barcha vaqt'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {!isLoadingLeaderboard && myRank.rank && myRank.entry && !leaderboard.some((e) => e.userId === currentUser.id) && (
-              <View style={[styles.leaderboardRow, styles.leaderboardRowMe, { marginBottom: 16 }]}>
-                <Text style={styles.leaderboardRank}>{myRank.rank}</Text>
-                <View style={styles.leaderboardAvatar}>
-                  {myRank.entry.avatarUrl ? (
-                    <Image source={{ uri: `${SERVER_URL}${myRank.entry.avatarUrl}` }} style={styles.leaderboardAvatarImg as any} />
-                  ) : (
-                    <Text style={styles.leaderboardAvatarInitials}>{myRank.entry.username.slice(0, 2).toUpperCase()}</Text>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.leaderboardUsername}>{myRank.entry.username} (siz)</Text>
-                  <Text style={styles.leaderboardDistance}>{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</Text>
-                </View>
-                <Text style={styles.leaderboardPoints}>{myRank.entry.points} ball</Text>
-              </View>
-            )}
-            {!isLoadingLeaderboard && !myRank.rank && (
-              <Text style={[styles.emptyText, { marginBottom: 12 }]}>Siz bu davrda hali yugurmagansiz</Text>
-            )}
+            <SegmentedControl
+              value={period}
+              onChange={setPeriod}
+              options={[
+                { value: 'daily', label: 'Kunlik' },
+                { value: 'weekly', label: 'Haftalik' },
+                { value: 'alltime', label: 'Barcha vaqt' },
+              ]}
+            />
 
             {isLoadingLeaderboard ? (
-              <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
+              <ActivityIndicator color={colors.accent} style={{ marginTop: 32 }} />
             ) : leaderboard.length === 0 ? (
-              <Text style={[styles.emptyText, { marginTop: 16 }]}>Bu davrda hali yugurishlar qayd etilmagan</Text>
+              <EmptyState
+                icon="trophy-outline"
+                title="Bu davrda hali yugurishlar qayd etilmagan"
+                subtitle="Birinchi bo'lib yugurib, reytingni boshlang."
+              />
             ) : (
-              leaderboard.map((entry) => (
-                <View
-                  key={entry.userId}
-                  style={[
-                    styles.leaderboardRow,
-                    entry.userId === currentUser.id && styles.leaderboardRowMe,
-                  ]}
-                >
-                  <Text style={styles.leaderboardRank}>{entry.rank}</Text>
-                  <View style={styles.leaderboardAvatar}>
-                    {entry.avatarUrl ? (
-                      <Image source={{ uri: `${SERVER_URL}${entry.avatarUrl}` }} style={styles.leaderboardAvatarImg as any} />
-                    ) : (
-                      <Text style={styles.leaderboardAvatarInitials}>{entry.username.slice(0, 2).toUpperCase()}</Text>
-                    )}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.leaderboardUsername}>{entry.username}</Text>
-                    <Text style={styles.leaderboardDistance}>{(entry.distanceMeters / 1000).toFixed(2)} km</Text>
-                  </View>
-                  <Text style={styles.leaderboardPoints}>{entry.points} ball</Text>
+              <>
+                {/* Podium: top 3 of this period, laid out 2nd-1st-3rd like a
+                    real awards stand instead of just a plainer first row. */}
+                <View style={styles.podiumRow}>
+                  {[leaderboard[1], leaderboard[0], leaderboard[2]].map((entry, idx) => {
+                    if (!entry) return <View key={`empty-${idx}`} style={styles.podiumSlot} />;
+                    const isFirst = idx === 1;
+                    const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : colors.bronze;
+                    return (
+                      <View key={entry.userId} style={[styles.podiumSlot, isFirst && styles.podiumSlotFirst]}>
+                        <Avatar
+                          uri={entry.avatarUrl ? `${SERVER_URL}${entry.avatarUrl}` : null}
+                          name={entry.username}
+                          size={isFirst ? 60 : 46}
+                          ring={entry.userId === currentUser.id}
+                        />
+                        <View style={[styles.podiumRankBadge, { backgroundColor: rankColor }]}>
+                          <Text style={styles.podiumRankText}>{entry.rank}</Text>
+                        </View>
+                        <Text style={styles.podiumName} numberOfLines={1}>{entry.username}</Text>
+                        <Text style={styles.podiumPoints}>{entry.points} ball</Text>
+                      </View>
+                    );
+                  })}
                 </View>
-              ))
+
+                {!myRank.rank && (
+                  <Text style={styles.leaderboardNoRankHint}>Siz bu davrda hali yugurmagansiz</Text>
+                )}
+
+                {myRank.rank && myRank.entry && !leaderboard.slice(0, 3).some((e) => e.userId === currentUser.id) && (
+                  <View style={[styles.leaderboardRow, styles.leaderboardRowMe, { marginBottom: space.md }]}>
+                    <Text style={styles.leaderboardRank}>{myRank.rank}</Text>
+                    <Avatar uri={myRank.entry.avatarUrl ? `${SERVER_URL}${myRank.entry.avatarUrl}` : null} name={myRank.entry.username} />
+                    <View style={{ flex: 1, marginLeft: space.md }}>
+                      <Text style={styles.leaderboardUsername}>{myRank.entry.username} (siz)</Text>
+                      <Text style={styles.leaderboardDistance}>{(myRank.entry.distanceMeters / 1000).toFixed(2)} km</Text>
+                    </View>
+                    <Text style={styles.leaderboardPoints}>{myRank.entry.points} ball</Text>
+                  </View>
+                )}
+
+                {leaderboard.slice(3).map((entry) => (
+                  <View
+                    key={entry.userId}
+                    style={[styles.leaderboardRow, entry.userId === currentUser.id && styles.leaderboardRowMe]}
+                  >
+                    <Text style={styles.leaderboardRank}>{entry.rank}</Text>
+                    <Avatar uri={entry.avatarUrl ? `${SERVER_URL}${entry.avatarUrl}` : null} name={entry.username} />
+                    <View style={{ flex: 1, marginLeft: space.md }}>
+                      <Text style={styles.leaderboardUsername}>{entry.username}</Text>
+                      <Text style={styles.leaderboardDistance}>{(entry.distanceMeters / 1000).toFixed(2)} km</Text>
+                    </View>
+                    <Text style={styles.leaderboardPoints}>{entry.points} ball</Text>
+                  </View>
+                ))}
+              </>
             )}
           </ScrollView>
         )}
@@ -989,32 +1082,36 @@ function AppInner() {
             keyExtractor={(run) => run.id}
             ListHeaderComponent={
               historyError ? (
-                <TouchableOpacity onPress={fetchHistory} style={{ paddingVertical: 10 }}>
-                  <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
-                    Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
-                  </Text>
+                <TouchableOpacity onPress={fetchHistory} style={styles.inlineRetry}>
+                  <Ionicons name="refresh-outline" size={14} color={colors.warning} />
+                  <Text style={styles.inlineRetryText}>Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.</Text>
                 </TouchableOpacity>
               ) : null
             }
             ListEmptyComponent={
               isLoadingHistory ? (
-                <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
+                <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
               ) : (
-                <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
+                <EmptyState icon="time-outline" title="Hali yugurishlar yo'q" subtitle="Yugurishlaringiz shu yerda tarix bo'lib to'planadi." />
               )
             }
             renderItem={({ item: run }) => (
-              <TouchableOpacity style={styles.runRow} onPress={() => openRunDetail(run.id)}>
-                <View>
+              <TouchableOpacity style={styles.runRow} onPress={() => openRunDetail(run.id)} activeOpacity={0.7}>
+                <View style={styles.runRowIconWrap}>
+                  <Ionicons name="footsteps" size={18} color={colors.accent} />
+                </View>
+                <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.runRowDate}>{new Date(run.startedAt).toLocaleDateString()}</Text>
-                    {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
+                    <Text style={styles.runRowDate}>{formatRunDay(run.startedAt)}</Text>
+                    {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color={colors.warning} />}
                   </View>
                   <Text style={styles.runRowMeta}>
                     {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
                   </Text>
                 </View>
-                <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
+                <View style={styles.runRowPointsPill}>
+                  <Text style={styles.runRowPoints}>+{run.pointsEarned}</Text>
+                </View>
               </TouchableOpacity>
             )}
           />
@@ -1022,7 +1119,12 @@ function AppInner() {
 
         {screen === 'plan' && (
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={styles.planIntro}>Masofani tanlang va yaqiningizdan aylanma yo'nalish oling.</Text>
+            <View style={styles.planIntroRow}>
+              <View style={styles.planIntroIconWrap}>
+                <Ionicons name="compass-outline" size={18} color={colors.accent} />
+              </View>
+              <Text style={styles.planIntro}>Masofani tanlang va yaqiningizdan aylanma yo'nalish oling.</Text>
+            </View>
 
             <View style={styles.planDistanceRow}>
               {PLAN_DISTANCES.map((km) => (
@@ -1056,40 +1158,40 @@ function AppInner() {
               </View>
             </View>
 
-            <TouchableOpacity
-              style={[styles.primaryButton, { marginTop: 16 }]}
+            <PressableScale
               onPress={handleSuggestRoute}
               disabled={isLocatingForPlan || isSuggestingRoute}
+              style={{ marginTop: space.lg }}
             >
-              {isLocatingForPlan || isSuggestingRoute ? (
-                <ActivityIndicator color="#000" />
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  {suggestedRoute ? "Boshqa yo'nalish taklif qilish" : `Yaqinimdan ${planTargetKm} km yo'nalish taklif qilish`}
-                </Text>
-              )}
-            </TouchableOpacity>
+              <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                {isLocatingForPlan || isSuggestingRoute ? (
+                  <ActivityIndicator color={colors.onAccent} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>
+                    {suggestedRoute ? "Boshqa yo'nalish taklif qilish" : `Yaqinimdan ${planTargetKm} km yo'nalish taklif qilish`}
+                  </Text>
+                )}
+              </LinearGradient>
+            </PressableScale>
 
             {planError && <Text style={styles.planError}>{planError}</Text>}
 
             {suggestedRoute && (
-              <View style={{ marginTop: 20 }}>
+              <View style={{ marginTop: space.xl }}>
                 <LeafletMap path={suggestedRoute.path} height={280} />
                 <View style={styles.statsGrid}>
-                  <StatCard icon="footsteps-outline" label="Yo'nalish masofasi" value={`${(suggestedRoute.distanceMeters / 1000).toFixed(2)} km`} width={screenWidth} />
-                  <StatCard icon="time-outline" label="Taxminiy yurish vaqti" value={`~${Math.round(suggestedRoute.durationSec / 60)} daq`} width={screenWidth} />
+                  <StatCard icon="footsteps-outline" label="Yo'nalish masofasi" value={(suggestedRoute.distanceMeters / 1000).toFixed(2)} unit="km" width={screenWidth} />
+                  <StatCard icon="time-outline" label="Taxminiy yurish vaqti" value={`~${Math.round(suggestedRoute.durationSec / 60)}`} unit="daq" width={screenWidth} tint="amber" />
                 </View>
-                <TouchableOpacity
-                  style={[styles.primaryButton, { marginTop: 14 }]}
-                  onPress={() => handleStartRun(suggestedRoute)}
-                  disabled={isStartingRun || currentUser.isBanned}
-                >
-                  {isStartingRun ? (
-                    <ActivityIndicator color="#000" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Shu yo'nalish bo'ylab yugurishni boshlash</Text>
-                  )}
-                </TouchableOpacity>
+                <PressableScale onPress={() => handleStartRun(suggestedRoute)} disabled={isStartingRun || currentUser.isBanned} style={{ marginTop: space.md }}>
+                  <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                    {isStartingRun ? (
+                      <ActivityIndicator color={colors.onAccent} />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Shu yo'nalish bo'ylab yugurishni boshlash</Text>
+                    )}
+                  </LinearGradient>
+                </PressableScale>
                 <Text style={styles.planHint}>Yozib olish fon rejimida ishlaydi — ekranni qulflab, davom eting.</Text>
               </View>
             )}
@@ -1108,7 +1210,7 @@ function AppInner() {
                   </View>
                 )}
                 <View style={styles.profileAvatarOverlay}>
-                  {isUploadingAvatar ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="camera-outline" size={18} color="#fff" />}
+                  {isUploadingAvatar ? <ActivityIndicator color={colors.text} size="small" /> : <Ionicons name="camera-outline" size={18} color={colors.text} />}
                 </View>
               </TouchableOpacity>
               <Text style={styles.profileUsernameLabel}>{currentUser.username}</Text>
@@ -1118,125 +1220,118 @@ function AppInner() {
             <View style={styles.profileCard}>
               <Text style={styles.profileSectionTitle}>Foydalanuvchi nomi</Text>
               <View style={styles.inputWrapper}>
-                <Ionicons name="person-outline" size={18} color="#71717a" style={styles.inputIcon} />
+                <Ionicons name="person-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
                   value={profileUsername}
                   onChangeText={setProfileUsername}
-                  placeholderTextColor="#52525b"
+                  placeholderTextColor={colors.textFaint}
                   style={styles.textInput}
                   autoCapitalize="none"
                 />
               </View>
-              <TouchableOpacity
-                style={[
-                  styles.primaryButton,
-                  { marginTop: 14 },
-                  (!profileUsername.trim() || profileUsername === currentUser.username) && styles.primaryButtonDisabled,
-                ]}
-                onPress={handleSaveUsername}
-                disabled={isSavingUsername || !profileUsername.trim() || profileUsername === currentUser.username}
-              >
-                {isSavingUsername ? (
-                  <ActivityIndicator color="#000" />
+              {(() => {
+                const isDisabled = isSavingUsername || !profileUsername.trim() || profileUsername === currentUser.username;
+                const label = isSavingUsername ? (
+                  <ActivityIndicator color={colors.onAccent} />
                 ) : (
-                  <Text
-                    style={[
-                      styles.primaryButtonText,
-                      (!profileUsername.trim() || profileUsername === currentUser.username) && styles.primaryButtonTextDisabled,
-                    ]}
-                  >
-                    Saqlash
-                  </Text>
-                )}
-              </TouchableOpacity>
+                  <Text style={[styles.primaryButtonText, isDisabled && styles.primaryButtonTextDisabled]}>Saqlash</Text>
+                );
+                return (
+                  <PressableScale onPress={handleSaveUsername} disabled={isDisabled} style={{ marginTop: space.md }}>
+                    {isDisabled ? (
+                      <View style={[styles.primaryButton, styles.primaryButtonDisabled]}>{label}</View>
+                    ) : (
+                      <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                        {label}
+                      </LinearGradient>
+                    )}
+                  </PressableScale>
+                );
+              })()}
             </View>
 
             <View style={styles.profileCard}>
               <Text style={styles.profileSectionTitle}>Parolni o'zgartirish</Text>
               <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
-                <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
                   value={currentPasswordInput}
                   onChangeText={setCurrentPasswordInput}
                   placeholder="Joriy parol"
-                  placeholderTextColor="#52525b"
+                  placeholderTextColor={colors.textFaint}
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
                 />
               </View>
               <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
-                <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
                   value={newPasswordInput}
                   onChangeText={setNewPasswordInput}
                   placeholder="Yangi parol"
-                  placeholderTextColor="#52525b"
+                  placeholderTextColor={colors.textFaint}
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
                 />
               </View>
               <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={18} color="#71717a" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
                   value={confirmPasswordInput}
                   onChangeText={setConfirmPasswordInput}
                   placeholder="Yangi parolni tasdiqlang"
-                  placeholderTextColor="#52525b"
+                  placeholderTextColor={colors.textFaint}
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
                 />
               </View>
-              <TouchableOpacity
-                style={[
-                  styles.primaryButton,
-                  { marginTop: 14 },
-                  (!currentPasswordInput || !newPasswordInput || !confirmPasswordInput) && styles.primaryButtonDisabled,
-                ]}
-                onPress={handleChangePassword}
-                disabled={isSavingPassword || !currentPasswordInput || !newPasswordInput || !confirmPasswordInput}
-              >
-                {isSavingPassword ? (
-                  <ActivityIndicator color="#000" />
+              {(() => {
+                const isDisabled = isSavingPassword || !currentPasswordInput || !newPasswordInput || !confirmPasswordInput;
+                const label = isSavingPassword ? (
+                  <ActivityIndicator color={colors.onAccent} />
                 ) : (
-                  <Text
-                    style={[
-                      styles.primaryButtonText,
-                      (!currentPasswordInput || !newPasswordInput || !confirmPasswordInput) && styles.primaryButtonTextDisabled,
-                    ]}
-                  >
-                    Parolni yangilash
-                  </Text>
-                )}
-              </TouchableOpacity>
+                  <Text style={[styles.primaryButtonText, isDisabled && styles.primaryButtonTextDisabled]}>Parolni yangilash</Text>
+                );
+                return (
+                  <PressableScale onPress={handleChangePassword} disabled={isDisabled} style={{ marginTop: space.md }}>
+                    {isDisabled ? (
+                      <View style={[styles.primaryButton, styles.primaryButtonDisabled]}>{label}</View>
+                    ) : (
+                      <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                        {label}
+                      </LinearGradient>
+                    )}
+                  </PressableScale>
+                );
+              })()}
             </View>
           </ScrollView>
         )}
       </View>
 
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <TouchableOpacity onPress={() => setScreen('home')} style={styles.tabItem}>
-          <Ionicons name={screen === 'home' ? 'home' : 'home-outline'} size={20} color={screen === 'home' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'home' && { color: '#22c55e' }]}>Bosh</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setScreen('leaderboard')} style={styles.tabItem}>
-          <Ionicons name={screen === 'leaderboard' ? 'trophy' : 'trophy-outline'} size={20} color={screen === 'leaderboard' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'leaderboard' && { color: '#22c55e' }]}>Reyting</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setScreen('history')} style={styles.tabItem}>
-          <Ionicons name={screen === 'history' ? 'time' : 'time-outline'} size={20} color={screen === 'history' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'history' && { color: '#22c55e' }]}>Tarix</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setScreen('plan')} style={styles.tabItem}>
-          <Ionicons name={screen === 'plan' ? 'map' : 'map-outline'} size={20} color={screen === 'plan' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'plan' && { color: '#22c55e' }]}>Reja</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setScreen('profile')} style={styles.tabItem}>
-          <Ionicons name={screen === 'profile' ? 'person' : 'person-outline'} size={20} color={screen === 'profile' ? '#22c55e' : '#71717a'} />
-          <Text style={[styles.tabLabel, screen === 'profile' && { color: '#22c55e' }]}>Profil</Text>
-        </TouchableOpacity>
+        {(
+          [
+            { key: 'home', icon: 'home', label: 'Bosh' },
+            { key: 'leaderboard', icon: 'trophy', label: 'Reyting' },
+            { key: 'history', icon: 'time', label: 'Tarix' },
+            { key: 'plan', icon: 'map', label: 'Reja' },
+            { key: 'profile', icon: 'person', label: 'Profil' },
+          ] as { key: Screen; icon: string; label: string }[]
+        ).map((tab) => {
+          const isActive = screen === tab.key;
+          return (
+            <TouchableOpacity key={tab.key} onPress={() => setScreen(tab.key)} style={styles.tabItem} activeOpacity={0.7}>
+              <View style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}>
+                <Ionicons name={(isActive ? tab.icon : `${tab.icon}-outline`) as any} size={19} color={isActive ? colors.onAccent : colors.textDim} />
+              </View>
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* ACTIVE RUN TRACKING MODAL — full-screen live map with floating blurred controls */}
@@ -1261,19 +1356,19 @@ function AppInner() {
                   />
                 ) : (
                   <View style={styles.liveMapPlaceholder}>
-                    <ActivityIndicator color="#22c55e" />
+                    <ActivityIndicator color={colors.accent} />
                     <Text style={styles.liveMapPlaceholderText}>GPS kutilmoqda…</Text>
                   </View>
                 )}
 
                 <SafeAreaView style={styles.liveOverlayTop} pointerEvents="box-none">
                   <BlurView intensity={70} tint="dark" style={styles.liveHeaderPill}>
-                    <View style={styles.runModalLiveDot} />
+                    <PulseDot color={colors.danger} size={8} />
                     <Text style={styles.runModalLiveText}>YOZILMOQDA</Text>
                   </BlurView>
                   {liveSpeedWarning && (
                     <BlurView intensity={70} tint="dark" style={styles.liveWarningPill}>
-                      <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+                      <Ionicons name="warning-outline" size={16} color={colors.warning} />
                       <Text style={styles.runModalWarningText}>Juda tez — bu qism hisoblanmaydi</Text>
                     </BlurView>
                   )}
@@ -1288,10 +1383,12 @@ function AppInner() {
                         <Text style={styles.runModalStatValue}>{(liveStats.distanceMeters / 1000).toFixed(2)}</Text>
                         <Text style={styles.runModalStatLabel}>KM</Text>
                       </View>
+                      <View style={styles.runModalStatDivider} />
                       <View style={styles.runModalStat}>
                         <Text style={styles.runModalStatValue}>{liveStats.avgSpeedKmh || 0}</Text>
                         <Text style={styles.runModalStatLabel}>O'RT KM/S</Text>
                       </View>
+                      <View style={styles.runModalStatDivider} />
                       <View style={styles.runModalStat}>
                         <Text style={styles.runModalStatValue}>{liveStats.maxSpeedKmh || 0}</Text>
                         <Text style={styles.runModalStatLabel}>MAKS KM/S</Text>
@@ -1300,18 +1397,20 @@ function AppInner() {
                   </BlurView>
 
                   <View style={styles.runModalActions}>
-                    <TouchableOpacity onPress={handleDiscardRun} style={styles.runModalDiscardButton} disabled={isFinishingRun}>
-                      <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                    <PressableScale onPress={handleDiscardRun} disabled={isFinishingRun} style={styles.runModalDiscardButton}>
+                      <Ionicons name="trash-outline" size={20} color={colors.danger} />
                       <Text style={styles.runModalDiscardText}>Bekor qilish</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={handleStopRun} style={styles.runModalStopButton} disabled={isFinishingRun}>
-                      {isFinishingRun ? <ActivityIndicator color="#000" /> : (
-                        <>
-                          <Ionicons name="stop-circle" size={24} color="#000" />
-                          <Text style={styles.runModalStopText}>To'xtatish va saqlash</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
+                    </PressableScale>
+                    <PressableScale onPress={handleStopRun} disabled={isFinishingRun} style={{ flex: 1 }}>
+                      <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.runModalStopButton}>
+                        {isFinishingRun ? <ActivityIndicator color={colors.onAccent} /> : (
+                          <>
+                            <Ionicons name="stop-circle" size={24} color={colors.onAccent} />
+                            <Text style={styles.runModalStopText}>To'xtatish va saqlash</Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </PressableScale>
                   </View>
                 </SafeAreaView>
               </>
@@ -1325,14 +1424,14 @@ function AppInner() {
         <SafeAreaView style={styles.runModalContainer}>
           <StatusBar barStyle="light-content" />
           <View style={styles.runModalHeader}>
-            <TouchableOpacity onPress={() => setSelectedRun(null)} style={{ position: 'absolute', left: 0 }}>
-              <Ionicons name="chevron-down" size={26} color="#71717a" />
+            <TouchableOpacity onPress={() => setSelectedRun(null)} style={{ position: 'absolute', left: 0 }} hitSlop={10}>
+              <Ionicons name="chevron-down" size={26} color={colors.textDim} />
             </TouchableOpacity>
             <Text style={styles.runModalLiveTextNeutral}>YUGURISH TAFSILOTI</Text>
           </View>
 
           {isLoadingRunDetail || !selectedRun ? (
-            <ActivityIndicator color="#22c55e" style={{ marginTop: 40 }} />
+            <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />
           ) : (
             <ScrollView contentContainerStyle={{ padding: 20 }}>
               <Text style={styles.detailDate}>
@@ -1345,7 +1444,7 @@ function AppInner() {
 
               {selectedRun.flaggedSegments > 0 && (
                 <View style={[styles.runModalWarning, { marginTop: 12, marginBottom: 4 }]}>
-                  <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+                  <Ionicons name="warning-outline" size={16} color={colors.warning} />
                   <Text style={styles.runModalWarningText}>
                     Bu yugurishning {selectedRun.flaggedSegments} qismi yugurish uchun juda tez bo&apos;lgani uchun hisoblanmadi.
                   </Text>
@@ -1358,15 +1457,15 @@ function AppInner() {
                   {!!selectedRun.plannedRoutePath?.length && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={{ width: 16, height: 2, backgroundColor: '#22c55e', borderRadius: 2 }} />
-                        <Text style={{ color: '#71717a', fontSize: 11 }}>Haqiqiy</Text>
+                        <View style={{ width: 16, height: 2, backgroundColor: colors.accent, borderRadius: 2 }} />
+                        <Text style={styles.legendText}>Haqiqiy</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={{ width: 16, height: 2, backgroundColor: '#71717a', borderRadius: 2 }} />
-                        <Text style={{ color: '#71717a', fontSize: 11 }}>Rejalashtirilgan</Text>
+                        <View style={{ width: 16, height: 2, backgroundColor: colors.textDim, borderRadius: 2 }} />
+                        <Text style={styles.legendText}>Rejalashtirilgan</Text>
                       </View>
                       {selectedRun.plannedDistanceMeters != null && (
-                        <Text style={{ color: '#71717a', fontSize: 11, marginLeft: 'auto' }}>
+                        <Text style={[styles.legendText, { marginLeft: 'auto' }]}>
                           Reja {(selectedRun.plannedDistanceMeters / 1000).toFixed(2)} km
                         </Text>
                       )}
@@ -1374,27 +1473,32 @@ function AppInner() {
                   )}
                 </View>
               ) : (
-                <Text style={[styles.emptyText, { marginTop: 16 }]}>Bu yugurish uchun yo'nalish ma'lumoti yo'q</Text>
+                <EmptyState icon="map-outline" title="Bu yugurish uchun yo'nalish ma'lumoti yo'q" compact />
               )}
 
               <View style={[styles.statsGrid, { marginTop: 20 }]}>
-                <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(selectedRun.distanceMeters)} km`} width={screenWidth} />
+                <StatCard icon="footsteps-outline" label="Masofa" value={formatKm(selectedRun.distanceMeters)} unit="km" width={screenWidth} />
                 <StatCard
                   icon="time-outline"
                   label="Davomiyligi"
                   value={`${Math.floor(selectedRun.durationSec / 60)}:${(selectedRun.durationSec % 60).toString().padStart(2, '0')}`}
                   width={screenWidth}
                 />
-                <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${selectedRun.avgSpeedKmh} km/h`} width={screenWidth} />
-                <StatCard icon="flash-outline" label="Maksimal tezlik" value={`${selectedRun.maxSpeedKmh} km/h`} width={screenWidth} />
+                <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${selectedRun.avgSpeedKmh}`} unit="km/h" width={screenWidth} />
+                <StatCard icon="flash-outline" label="Maksimal tezlik" value={`${selectedRun.maxSpeedKmh}`} unit="km/h" width={screenWidth} tint="amber" />
               </View>
 
-              <View style={[styles.profileCard, { marginTop: 16 }]}>
-                <Text style={{ color: '#22c55e', fontSize: 28, fontWeight: '900' }}>+{selectedRun.pointsEarned}</Text>
-                <Text style={{ color: '#71717a', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 4 }}>
-                  TO'PLANGAN BALLAR
-                </Text>
-              </View>
+              <LinearGradient colors={[colors.accentSoft, 'transparent']} style={[styles.profileCard, { marginTop: 16, alignItems: 'flex-start' }]}>
+                <View style={styles.pointsEarnedRow}>
+                  <View style={styles.pointsEarnedIconWrap}>
+                    <Ionicons name="trophy" size={18} color={colors.onAccent} />
+                  </View>
+                  <View>
+                    <Text style={styles.pointsEarnedValue}>+{selectedRun.pointsEarned}</Text>
+                    <Text style={styles.pointsEarnedLabel}>TO'PLANGAN BALLAR</Text>
+                  </View>
+                </View>
+              </LinearGradient>
             </ScrollView>
           )}
         </SafeAreaView>
@@ -1410,18 +1514,30 @@ const StatCard = React.memo(function StatCard({
   icon,
   label,
   value,
+  unit,
   width,
+  tint = 'green',
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
+  unit?: string;
   width: number;
+  /** 'amber' for point/streak-flavored stats so the grid isn't monochrome. */
+  tint?: 'green' | 'amber';
 }) {
-  const cardWidth = (Math.min(width, 600) - 20 * 2 - 12) / 2;
+  const cardWidth = (Math.min(width, 600) - space.xl * 2 - space.md) / 2;
+  const tintColor = tint === 'amber' ? colors.amber : colors.accent;
+  const tintSoft = tint === 'amber' ? colors.amberSoft : colors.accentSoft;
   return (
     <View style={[styles.statCard, { width: cardWidth }]}>
-      <Ionicons name={icon} size={20} color="#22c55e" />
-      <Text style={styles.statCardValue}>{value}</Text>
+      <View style={[styles.statCardIconWrap, { backgroundColor: tintSoft }]}>
+        <Ionicons name={icon} size={16} color={tintColor} />
+      </View>
+      <View style={styles.statCardValueRow}>
+        <Text style={styles.statCardValue}>{value}</Text>
+        {!!unit && <Text style={styles.statCardUnit}> {unit}</Text>}
+      </View>
       <Text style={styles.statCardLabel}>{label}</Text>
     </View>
   );
@@ -1436,248 +1552,303 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, backgroundColor: '#09090b', alignItems: 'center', justifyContent: 'center' },
-  loginContainer: { flex: 1, backgroundColor: '#09090b' },
-  loginScroll: { flexGrow: 1, justifyContent: 'center', padding: 24 },
-  loginCard: {
-    backgroundColor: '#18181b',
-    borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 24,
-    padding: 24,
+  loadingContainer: { flex: 1, backgroundColor: colors.bg0, alignItems: 'center', justifyContent: 'center' },
+  loginContainer: { flex: 1, backgroundColor: colors.bg0 },
+  // A big soft-edged accent circle bleeding off the top corner - the
+  // cheapest possible way to make a plain dark screen feel lit rather than
+  // flat. Purely decorative, pointerEvents disabled.
+  loginGlow: {
+    position: 'absolute',
+    top: -180,
+    right: -120,
+    width: 420,
+    height: 420,
+    borderRadius: 210,
+    backgroundColor: colors.accentSoft,
   },
-  logoContainer: { alignItems: 'center', marginBottom: 32 },
-  logoText: { fontSize: 28, fontWeight: '900', color: '#fff', marginTop: 12, letterSpacing: 0.5 },
-  logoSubtext: { fontSize: 12, color: '#71717a', marginTop: 4, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
-  inputGroup: { marginBottom: 20 },
-  inputLabel: { fontSize: 10, fontWeight: 'bold', color: '#a1a1aa', marginBottom: 8, letterSpacing: 1.5 },
+  loginScroll: { flexGrow: 1, justifyContent: 'center', padding: space.xl },
+  loginCard: {
+    backgroundColor: colors.bg1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: space.xl,
+  },
+  logoContainer: { alignItems: 'center', marginBottom: space.xxl },
+  logoBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.soft,
+    shadowColor: colors.accentDeep,
+  },
+  logoText: { fontSize: 30, lineHeight: 38, fontFamily: font.display, color: colors.text, marginTop: space.md, letterSpacing: 0.2 },
+  logoSubtext: { fontSize: 12.5, color: colors.textDim, marginTop: 6, fontFamily: font.bodySemi, textTransform: 'uppercase', letterSpacing: 1 },
+  inputGroup: { marginBottom: space.lg },
+  inputLabel: { fontSize: 10.5, fontFamily: font.bodyExtraBold, color: colors.textDim, marginBottom: space.sm, letterSpacing: 1.4 },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#09090b',
+    backgroundColor: colors.bgInput,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md + 2,
   },
-  inputIcon: { marginRight: 10 },
-  textInput: { flex: 1, height: 48, color: '#fff', fontSize: 14 },
+  inputIcon: { marginRight: space.sm + 2 },
+  textInput: { flex: 1, height: 50, color: colors.text, fontSize: 14.5, fontFamily: font.bodyMedium },
   primaryButton: {
-    backgroundColor: '#22c55e',
-    height: 52,
-    borderRadius: 12,
+    height: 54,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
   },
-  primaryButtonText: { color: '#000', fontSize: 15, fontWeight: 'bold' },
+  primaryButtonText: { color: colors.onAccent, fontSize: 15, fontFamily: font.bodyBold },
   // Was `{ opacity: 0.5 }` on the whole button - fading BOTH the green
   // background and the black text toward the dark app background crushed
   // the text-vs-background contrast down to almost nothing (confirmed
   // on-device: the label was barely legible). A dedicated muted style
   // keeps the disabled state clearly readable instead.
-  primaryButtonDisabled: { backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
-  primaryButtonTextDisabled: { color: '#71717a' },
-  authModeToggle: { marginTop: 20, alignItems: 'center' },
-  authModeToggleText: { color: '#71717a', fontSize: 13 },
-  authModeToggleLink: { color: '#22c55e', fontWeight: 'bold' },
-  mainContainer: { flex: 1, backgroundColor: '#09090b' },
+  primaryButtonDisabled: { backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border },
+  primaryButtonTextDisabled: { color: colors.textDim },
+  authModeToggle: { marginTop: space.xl, alignItems: 'center' },
+  authModeToggleText: { color: colors.textDim, fontSize: 13, fontFamily: font.bodyMedium },
+  authModeToggleLink: { color: colors.accent, fontFamily: font.bodyBold },
+  mainContainer: { flex: 1, backgroundColor: colors.bg0 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.md + 2,
     borderBottomWidth: 1,
-    borderBottomColor: '#18181b',
+    borderBottomColor: colors.bg1,
   },
-  headerTitle: { flex: 1, fontSize: 22, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
-  logoutButton: { padding: 8, backgroundColor: '#18181b', borderRadius: 10, borderWidth: 1, borderColor: '#27272a' },
-  scrollContent: { padding: 20, paddingBottom: 40 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
+  headerGreeting: { fontSize: 12.5, lineHeight: 16, color: colors.textDim, fontFamily: font.bodySemi, marginBottom: 2 },
+  headerTitle: { flex: 1, fontSize: 22, lineHeight: 28, fontFamily: font.display, color: colors.text, letterSpacing: 0.2 },
+  logoutButton: { padding: space.sm, backgroundColor: colors.bg1, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
+  scrollContent: { padding: space.xl, paddingBottom: space.xxxl },
+  inlineRetry: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm + 2 },
+  inlineRetryText: { color: colors.warning, fontSize: 12.5, fontFamily: font.bodySemi, flexShrink: 1 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginBottom: space.xl },
   statCard: {
-    backgroundColor: '#18181b',
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 16,
-    padding: 14,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: space.lg,
   },
-  statCardValue: { color: '#fff', fontSize: 18, fontWeight: '900', marginTop: 8 },
-  statCardLabel: { color: '#71717a', fontSize: 11, marginTop: 2 },
+  statCardIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statCardValueRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: space.sm + 2 },
+  statCardValue: { color: colors.text, fontSize: 19, lineHeight: 24, fontFamily: font.display },
+  statCardUnit: { color: colors.textDim, fontSize: 12, fontFamily: font.bodySemi },
+  statCardLabel: { color: colors.textDim, fontSize: 11.5, marginTop: 2, fontFamily: font.bodyMedium },
   startRunButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#22c55e',
-    borderRadius: 20,
-    height: 64,
-    marginBottom: 20,
+    gap: space.md,
+    borderRadius: radius.lg,
+    height: 66,
+    marginBottom: space.xl,
+    ...shadow.raised,
+    shadowColor: colors.accentDeep,
   },
-  startRunButtonText: { color: '#000', fontSize: 18, fontWeight: '900' },
-  sectionTitle: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 12 },
-  emptyText: { color: '#71717a', fontSize: 13, fontStyle: 'italic' },
+  startRunIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(4,20,13,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startRunButtonText: { color: colors.onAccent, fontSize: 17, fontFamily: font.bodyExtraBold },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.md },
+  sectionTitle: { color: colors.text, fontSize: 15.5, fontFamily: font.bodyBold },
+  emptyText: { color: colors.textDim, fontSize: 13, fontFamily: font.bodyMedium },
   runRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#18181b',
+    gap: space.md,
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: space.md + 2,
+    marginBottom: space.sm,
   },
-  runRowDate: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  runRowMeta: { color: '#71717a', fontSize: 11, marginTop: 2 },
-  runRowPoints: { color: '#22c55e', fontWeight: 'bold', fontSize: 13 },
-  periodTabs: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  periodTab: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
-  periodTabActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
-  periodTabText: { color: '#71717a', fontSize: 12, fontWeight: 'bold' },
-  periodTabTextActive: { color: '#000' },
+  runRowIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  runRowDate: { color: colors.text, fontSize: 13.5, fontFamily: font.bodyBold },
+  runRowMeta: { color: colors.textDim, fontSize: 11.5, marginTop: 2, fontFamily: font.bodyMedium },
+  runRowPointsPill: { backgroundColor: colors.accentSoft, borderRadius: radius.pill, paddingHorizontal: space.sm + 2, paddingVertical: 4 },
+  runRowPoints: { color: colors.accent, fontFamily: font.bodyExtraBold, fontSize: 12.5 },
   leaderboardRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#18181b',
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: space.md,
+    marginBottom: space.sm,
   },
-  leaderboardRowMe: { borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.08)' },
-  leaderboardRank: { width: 20, textAlign: 'center', color: '#71717a', fontWeight: 'bold', fontSize: 13 },
-  leaderboardAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(34,197,94,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  leaderboardAvatarImg: { width: '100%', height: '100%' },
-  leaderboardAvatarInitials: { color: '#22c55e', fontSize: 12, fontWeight: 'bold' },
-  leaderboardUsername: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  leaderboardDistance: { color: '#71717a', fontSize: 11, marginTop: 1 },
-  leaderboardPoints: { color: '#22c55e', fontWeight: 'bold', fontSize: 13 },
+  leaderboardRowMe: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  leaderboardRank: { width: 22, textAlign: 'center', color: colors.textDim, fontFamily: font.bodyExtraBold, fontSize: 13 },
+  leaderboardUsername: { color: colors.text, fontSize: 13.5, fontFamily: font.bodySemi },
+  leaderboardDistance: { color: colors.textDim, fontSize: 11.5, marginTop: 1, fontFamily: font.bodyMedium },
+  leaderboardPoints: { color: colors.accent, fontFamily: font.bodyExtraBold, fontSize: 13 },
+  leaderboardNoRankHint: { color: colors.textFaint, fontSize: 12, fontFamily: font.bodyMedium, textAlign: 'center', marginBottom: space.md },
+  podiumRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: space.sm, marginBottom: space.xl },
+  podiumSlot: { flex: 1, alignItems: 'center', backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: space.lg, paddingHorizontal: space.xs },
+  podiumSlotFirst: { paddingVertical: space.xl, backgroundColor: colors.bg2, borderColor: colors.borderStrong },
+  podiumRankBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: -11, borderWidth: 2, borderColor: colors.bg1 },
+  podiumRankText: { color: colors.onAccent, fontSize: 11, fontFamily: font.bodyExtraBold },
+  podiumName: { color: colors.text, fontSize: 12, fontFamily: font.bodySemi, marginTop: space.sm, maxWidth: 84 },
+  podiumPoints: { color: colors.textDim, fontSize: 11, fontFamily: font.bodyMedium, marginTop: 1 },
   profileCard: {
-    backgroundColor: '#18181b',
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 16,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: space.xl,
+    marginBottom: space.lg,
     alignItems: 'center',
   },
-  profileAvatarWrapper: { width: 84, height: 84, borderRadius: 42, marginBottom: 12, overflow: 'hidden', position: 'relative' },
+  profileAvatarWrapper: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    marginBottom: space.md,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: colors.accent,
+  },
   profileAvatarImage: { width: '100%', height: '100%' },
-  profileAvatarPlaceholder: { width: '100%', height: '100%', backgroundColor: 'rgba(34,197,94,0.15)', alignItems: 'center', justifyContent: 'center' },
-  profileAvatarInitials: { color: '#22c55e', fontSize: 26, fontWeight: '900' },
+  profileAvatarPlaceholder: { width: '100%', height: '100%', backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  profileAvatarInitials: { color: colors.accent, fontSize: 26, lineHeight: 32, fontFamily: font.display },
   profileAvatarOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    // Opaque enough that the camera hint reads cleanly on its own - at
+    // ~0.45 the initials underneath showed through and collided visually
+    // with the icon (confirmed on-device).
+    backgroundColor: 'rgba(10,11,14,0.88)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileUsernameLabel: { color: '#fff', fontSize: 16, fontWeight: '900' },
-  profileHint: { color: '#71717a', fontSize: 11, marginTop: 4, textAlign: 'center' },
-  profileSectionTitle: { color: '#fff', fontSize: 14, fontWeight: 'bold', alignSelf: 'flex-start', marginBottom: 12 },
+  profileUsernameLabel: { color: colors.text, fontSize: 17, lineHeight: 22, fontFamily: font.display },
+  profileHint: { color: colors.textDim, fontSize: 11.5, marginTop: 4, textAlign: 'center', fontFamily: font.bodyMedium },
+  profileSectionTitle: { color: colors.text, fontSize: 14, fontFamily: font.bodyBold, alignSelf: 'flex-start', marginBottom: space.md },
   tabBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#18181b',
-    backgroundColor: '#09090b',
-    paddingTop: 10,
+    borderTopColor: colors.bg1,
+    backgroundColor: colors.bg0,
+    paddingTop: space.sm + 2,
     paddingHorizontal: 4,
   },
-  tabItem: { flex: 1, alignItems: 'center', gap: 4 },
-  tabLabel: { color: '#71717a', fontSize: 10, fontWeight: '600' },
-  runModalContainer: { flex: 1, backgroundColor: '#09090b', justifyContent: 'space-between', padding: 24 },
-  runModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
-  runModalLiveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' },
-  runModalLiveText: { color: '#ef4444', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  tabItem: { flex: 1, alignItems: 'center', gap: 3 },
+  tabIconWrap: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  tabIconWrapActive: { backgroundColor: colors.accent },
+  tabLabel: { color: colors.textDim, fontSize: 10, fontFamily: font.bodySemi },
+  tabLabelActive: { color: colors.text },
+  runModalContainer: { flex: 1, backgroundColor: colors.bg0, justifyContent: 'space-between', padding: space.xl + 4 },
+  runModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.md },
+  runModalLiveText: { color: colors.danger, fontSize: 12, fontFamily: font.bodyExtraBold, letterSpacing: 2 },
   runModalWarning: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(245,158,11,0.1)',
+    gap: space.sm,
+    backgroundColor: colors.warningSoft,
     borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.3)',
-    borderRadius: 14,
-    padding: 10,
-    marginTop: 16,
+    borderColor: 'rgba(240,180,41,0.3)',
+    borderRadius: radius.md,
+    padding: space.sm + 2,
+    marginTop: space.lg,
   },
-  runModalWarningText: { color: '#f59e0b', fontSize: 11, fontWeight: '600', flexShrink: 1, textAlign: 'center' },
-  runModalTime: { color: '#fff', fontSize: 64, fontWeight: '900', fontVariant: ['tabular-nums'] },
-  runModalTimeLabel: { color: '#71717a', fontSize: 12, fontWeight: 'bold', letterSpacing: 2, marginTop: 4 },
-  runModalStatsRow: { flexDirection: 'row', gap: 32, marginTop: 48 },
+  runModalWarningText: { color: colors.warning, fontSize: 11, fontFamily: font.bodySemi, flexShrink: 1, textAlign: 'center' },
+  runModalTime: { color: colors.text, fontSize: 64, lineHeight: 78, fontFamily: font.display, fontVariant: ['tabular-nums'] },
+  runModalTimeLabel: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyExtraBold, letterSpacing: 2, marginTop: 4 },
+  runModalStatsRow: { flexDirection: 'row', alignItems: 'center', gap: space.xxl, marginTop: space.xxxl + 8 },
   runModalStat: { alignItems: 'center' },
-  runModalStatValue: { color: '#22c55e', fontSize: 28, fontWeight: '900' },
-  runModalStatLabel: { color: '#71717a', fontSize: 11, fontWeight: 'bold', letterSpacing: 1, marginTop: 4 },
-  runModalActions: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  runModalStatDivider: { width: 1, height: 28, backgroundColor: colors.border },
+  runModalStatValue: { color: colors.accent, fontSize: 26, lineHeight: 32, fontFamily: font.display },
+  runModalStatLabel: { color: colors.textDim, fontSize: 10.5, fontFamily: font.bodyExtraBold, letterSpacing: 1, marginTop: 4 },
+  runModalActions: { flexDirection: 'row', gap: space.md, marginBottom: space.md },
   runModalDiscardButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: space.sm,
     borderWidth: 1,
-    borderColor: '#ef4444',
-    borderRadius: 18,
+    borderColor: colors.danger,
+    borderRadius: radius.lg,
     height: 60,
-    width: 110,
-    backgroundColor: 'rgba(9,9,11,0.6)',
+    width: 116,
+    backgroundColor: 'rgba(10,11,14,0.6)',
   },
-  runModalDiscardText: { color: '#ef4444', fontSize: 13, fontWeight: 'bold' },
+  runModalDiscardText: { color: colors.danger, fontSize: 13, fontFamily: font.bodyBold },
   runModalStopButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#22c55e',
-    borderRadius: 18,
+    gap: space.sm,
+    borderRadius: radius.lg,
     height: 60,
   },
-  runModalStopText: { color: '#000', fontSize: 16, fontWeight: '900' },
-  liveMapRoot: { flex: 1, backgroundColor: '#09090b' },
-  liveMapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  liveMapPlaceholderText: { color: '#71717a', fontSize: 13, fontWeight: '600' },
+  runModalStopText: { color: colors.onAccent, fontSize: 16, fontFamily: font.bodyExtraBold },
+  liveMapRoot: { flex: 1, backgroundColor: colors.bg0 },
+  liveMapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md },
+  liveMapPlaceholderText: { color: colors.textDim, fontSize: 13, fontFamily: font.bodySemi },
   liveOverlayTop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     alignItems: 'center',
-    paddingTop: 12,
-    gap: 8,
+    paddingTop: space.md,
+    gap: space.sm,
   },
   liveHeaderPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+    borderRadius: radius.pill,
     overflow: 'hidden',
   },
   liveWarningPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    marginHorizontal: 20,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.lg,
+    marginHorizontal: space.xl,
     overflow: 'hidden',
   },
   liveOverlayBottom: {
@@ -1685,56 +1856,63 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    gap: 16,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.md,
+    gap: space.lg,
   },
   liveStatsPanel: {
-    borderRadius: 28,
-    paddingVertical: 24,
+    borderRadius: radius.xl + 2,
+    paddingVertical: space.xl + 4,
     alignItems: 'center',
     overflow: 'hidden',
   },
-  runModalLiveTextNeutral: { color: '#71717a', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  detailDate: { color: '#fff', fontSize: 20, fontWeight: '900' },
+  runModalLiveTextNeutral: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyExtraBold, letterSpacing: 2 },
+  detailDate: { color: colors.text, fontSize: 20, lineHeight: 26, fontFamily: font.display },
+  legendText: { color: colors.textDim, fontSize: 11, fontFamily: font.bodyMedium },
+  pointsEarnedRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  pointsEarnedIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  pointsEarnedValue: { color: colors.accent, fontSize: 26, lineHeight: 32, fontFamily: font.display },
+  pointsEarnedLabel: { color: colors.textDim, fontSize: 10.5, fontFamily: font.bodyExtraBold, letterSpacing: 1, marginTop: 2 },
   bannedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(239,68,68,0.1)',
+    gap: space.sm,
+    backgroundColor: colors.dangerSoft,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(239,68,68,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderBottomColor: 'rgba(240,87,107,0.2)',
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 2,
   },
-  bannedBannerText: { color: '#ef4444', fontSize: 11, flex: 1, lineHeight: 15 },
-  viewAllLink: { color: '#22c55e', fontSize: 12, fontWeight: 'bold' },
-  planIntro: { color: '#a1a1aa', fontSize: 13, marginBottom: 20, lineHeight: 18 },
-  planDistanceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  bannedBannerText: { color: colors.danger, fontSize: 11, flex: 1, lineHeight: 15, fontFamily: font.bodyMedium },
+  viewAllLink: { color: colors.accent, fontSize: 12.5, fontFamily: font.bodyBold },
+  planIntroRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginBottom: space.xl },
+  planIntroIconWrap: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  planIntro: { flex: 1, color: colors.textDim, fontSize: 13, lineHeight: 18, fontFamily: font.bodyMedium },
+  planDistanceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   planDistanceChip: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#18181b',
+    paddingHorizontal: space.lg + 2,
+    paddingVertical: space.sm + 2,
+    borderRadius: radius.md,
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
+    borderColor: colors.border,
   },
-  planDistanceChipActive: { backgroundColor: '#22c55e', borderColor: '#22c55e' },
-  planDistanceChipText: { color: '#71717a', fontSize: 13, fontWeight: 'bold' },
-  planDistanceChipTextActive: { color: '#000' },
+  planDistanceChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  planDistanceChipText: { color: colors.textDim, fontSize: 13, fontFamily: font.bodyBold },
+  planDistanceChipTextActive: { color: colors.onAccent },
   planManualKmWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#18181b',
+    backgroundColor: colors.bg1,
     borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
-  planManualKmInput: { color: '#fff', fontWeight: '700', fontSize: 14, minWidth: 32, padding: 0 },
-  planManualKmLabel: { color: '#71717a', fontSize: 12 },
-  planError: { color: '#ef4444', fontSize: 12, textAlign: 'center', marginTop: 12 },
-  planHint: { color: '#71717a', fontSize: 11, textAlign: 'center', marginTop: 12, lineHeight: 16 },
+  planManualKmInput: { color: colors.text, fontFamily: font.bodyBold, fontSize: 14, minWidth: 32, padding: 0 },
+  planManualKmLabel: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyMedium },
+  planError: { color: colors.danger, fontSize: 12, textAlign: 'center', marginTop: space.md, fontFamily: font.bodyMedium },
+  planHint: { color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: space.md, lineHeight: 16, fontFamily: font.bodyMedium },
 });

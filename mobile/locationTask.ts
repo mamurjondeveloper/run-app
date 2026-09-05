@@ -234,15 +234,30 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
   if (!locations || locations.length === 0) return;
 
   try {
-    const newPoints: RunPoint[] = locations.map((loc) => ({
-      lat: loc.coords.latitude,
-      lng: loc.coords.longitude,
-      ts: loc.timestamp,
-      speedKmh:
-        loc.coords.speed != null && loc.coords.speed >= 0
-          ? Math.round(loc.coords.speed * 3.6 * 10) / 10
-          : undefined,
-    }));
+    // A low-accuracy fix - most commonly the very first update, before GPS
+    // has a real lock, when the OS falls back to a coarse network/cell
+    // estimate (or, confirmed on the emulator, a stale default location) -
+    // can land hundreds of km from the run and wreck both the map (the
+    // fitBounds zooms out to fit a point on another continent) and the
+    // distance/speed math for that segment. Points with poor horizontal
+    // accuracy are dropped rather than recorded and only cleaned up
+    // after the fact server-side.
+    const MAX_ACCURACY_METERS = 50;
+    const newPoints: RunPoint[] = locations
+      .filter((loc) => {
+        const ok = loc.coords.accuracy != null && loc.coords.accuracy <= MAX_ACCURACY_METERS;
+        if (!ok) console.warn('Dropping low-accuracy GPS fix:', loc.coords.accuracy);
+        return ok;
+      })
+      .map((loc) => ({
+        lat: loc.coords.latitude,
+        lng: loc.coords.longitude,
+        ts: loc.timestamp,
+        speedKmh:
+          loc.coords.speed != null && loc.coords.speed >= 0
+            ? Math.round(loc.coords.speed * 3.6 * 10) / 10
+            : undefined,
+      }));
     await appendPoints(newPoints);
   } catch (e) {
     console.error('Failed to persist location points:', e);
