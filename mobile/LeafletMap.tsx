@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { LEAFLET_JS, LEAFLET_CSS } from './leafletAssets';
 
 export interface MapPoint {
   lat: number;
@@ -15,9 +16,17 @@ interface LeafletMapProps {
   secondaryPath?: MapPoint[];
 }
 
-// Self-contained Leaflet map loaded from CDN inside a WebView — avoids
-// needing react-native-maps + a Google Maps API key just to draw a line on
-// a map, and keeps the visual style consistent with the web app's map.
+// Self-contained Leaflet map inside a WebView — avoids needing
+// react-native-maps + a Google Maps API key just to draw a line on a map,
+// and keeps the visual style consistent with the web app's map. Leaflet's
+// own JS/CSS are inlined (see leafletAssets.ts) rather than loaded from
+// unpkg.com at runtime: with a CDN <script src>, no internet reachability
+// to that CDN meant `L` was never defined and the map area rendered
+// completely blank with no error - confirmed on-device, not just
+// theoretical. Only the OSM tile imagery itself still needs a network
+// connection (no offline tile cache); without it the polyline/markers/
+// controls still render correctly over blank/grey tiles instead of the
+// whole map disappearing.
 export default function LeafletMap({ path, height = 260, color = '#22c55e', secondaryPath }: LeafletMapProps) {
   const html = useMemo(() => {
     if (path.length === 0) return '';
@@ -30,12 +39,12 @@ export default function LeafletMap({ path, height = 260, color = '#22c55e', seco
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>${LEAFLET_CSS}</style>
   <style>html,body,#map{height:100%;margin:0;padding:0;background:#18181b;}</style>
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>${LEAFLET_JS}</script>
   <script>
     const coords = ${JSON.stringify(coords)};
     const secondaryCoords = ${JSON.stringify(secondaryCoords)};

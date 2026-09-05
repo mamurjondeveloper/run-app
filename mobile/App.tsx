@@ -865,7 +865,10 @@ function AppInner() {
                   <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)} km`} width={screenWidth} />
                   <StatCard icon="trophy-outline" label="Ballar" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} />
                   <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0} km/h`} width={screenWidth} />
-                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0}k`} width={screenWidth} />
+                  {/* Was `${n}k` - read at a glance as a magnitude suffix (like
+                      1k = 1000) rather than "kun" (days), confirmed confusing
+                      on-device. */}
+                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0} kun`} width={screenWidth} />
                 </View>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1128,12 +1131,23 @@ function AppInner() {
                 style={[
                   styles.primaryButton,
                   { marginTop: 14 },
-                  (!profileUsername.trim() || profileUsername === currentUser.username) && { opacity: 0.5 },
+                  (!profileUsername.trim() || profileUsername === currentUser.username) && styles.primaryButtonDisabled,
                 ]}
                 onPress={handleSaveUsername}
                 disabled={isSavingUsername || !profileUsername.trim() || profileUsername === currentUser.username}
               >
-                {isSavingUsername ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Saqlash</Text>}
+                {isSavingUsername ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.primaryButtonText,
+                      (!profileUsername.trim() || profileUsername === currentUser.username) && styles.primaryButtonTextDisabled,
+                    ]}
+                  >
+                    Saqlash
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -1179,12 +1193,23 @@ function AppInner() {
                 style={[
                   styles.primaryButton,
                   { marginTop: 14 },
-                  (!currentPasswordInput || !newPasswordInput || !confirmPasswordInput) && { opacity: 0.5 },
+                  (!currentPasswordInput || !newPasswordInput || !confirmPasswordInput) && styles.primaryButtonDisabled,
                 ]}
                 onPress={handleChangePassword}
                 disabled={isSavingPassword || !currentPasswordInput || !newPasswordInput || !confirmPasswordInput}
               >
-                {isSavingPassword ? <ActivityIndicator color="#000" /> : <Text style={styles.primaryButtonText}>Parolni yangilash</Text>}
+                {isSavingPassword ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text
+                    style={[
+                      styles.primaryButtonText,
+                      (!currentPasswordInput || !newPasswordInput || !confirmPasswordInput) && styles.primaryButtonTextDisabled,
+                    ]}
+                  >
+                    Parolni yangilash
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -1446,6 +1471,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   primaryButtonText: { color: '#000', fontSize: 15, fontWeight: 'bold' },
+  // Was `{ opacity: 0.5 }` on the whole button - fading BOTH the green
+  // background and the black text toward the dark app background crushed
+  // the text-vs-background contrast down to almost nothing (confirmed
+  // on-device: the label was barely legible). A dedicated muted style
+  // keeps the disabled state clearly readable instead.
+  primaryButtonDisabled: { backgroundColor: '#18181b', borderWidth: 1, borderColor: '#27272a' },
+  primaryButtonTextDisabled: { color: '#71717a' },
   authModeToggle: { marginTop: 20, alignItems: 'center' },
   authModeToggleText: { color: '#71717a', fontSize: 13 },
   authModeToggleLink: { color: '#22c55e', fontWeight: 'bold' },

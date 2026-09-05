@@ -1,6 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { LEAFLET_JS, LEAFLET_CSS } from './leafletAssets';
 
 export interface MapPoint {
   lat: number;
@@ -24,7 +25,9 @@ export interface LiveLeafletMapHandle {
 // several times a second during live tracking. This loads the map ONCE and
 // pushes new points into the already-running Leaflet instance via
 // injectJavaScript, matching the incremental-update + line-break-on-gap +
-// follow-the-runner behavior built for the web app's live map.
+// follow-the-runner behavior built for the web app's live map. Leaflet's
+// JS/CSS are inlined from leafletAssets.ts rather than loaded from
+// unpkg.com - see the comment in LeafletMap.tsx for why.
 const LiveLeafletMap = forwardRef<LiveLeafletMapHandle, LiveLeafletMapProps>(
   ({ initialCenter, secondaryPath, color = '#22c55e', avatarUrl }, ref) => {
     const webViewRef = useRef<WebView>(null);
@@ -46,12 +49,12 @@ const LiveLeafletMap = forwardRef<LiveLeafletMapHandle, LiveLeafletMapProps>(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>${LEAFLET_CSS}</style>
   <style>html,body,#map{height:100%;margin:0;padding:0;background:#18181b;}</style>
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>${LEAFLET_JS}</script>
   <script>
     const secondaryCoords = ${JSON.stringify(secondaryCoords)};
     const map = L.map('map', { zoomControl: false, attributionControl: false })
