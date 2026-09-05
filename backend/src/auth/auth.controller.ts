@@ -9,6 +9,7 @@ import {
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -22,11 +23,16 @@ import { CurrentUser } from './current-user.decorator';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // Tighter than the global default - blunts credential-stuffing/brute-force
+  // traffic, which would otherwise burn bcrypt CPU and SQLite lock time that
+  // real users' requests are also waiting on.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.username, loginDto.password);
   }
 
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto.username, registerDto.password);

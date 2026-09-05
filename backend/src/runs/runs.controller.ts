@@ -26,8 +26,13 @@ export class RunsController {
   }
 
   @Get('me')
-  async myRuns(@CurrentUser() user: any, @Query('limit') limit?: number) {
-    return this.runsService.getMyRuns(user.id, limit ? Number(limit) : undefined);
+  async myRuns(@CurrentUser() user: any, @Query('limit') limit?: string) {
+    // Clamp so a client (or anyone hitting the API directly) can't request
+    // an unbounded findMany, e.g. ?limit=999999.
+    const MAX_LIMIT = 100;
+    const parsed = limit ? Number(limit) : undefined;
+    const safeLimit = parsed && Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, MAX_LIMIT) : undefined;
+    return this.runsService.getMyRuns(user.id, safeLimit);
   }
 
   @Get(':id')

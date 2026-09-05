@@ -45,16 +45,20 @@ export async function updateRunNotification(distanceMeters: number, elapsedSec: 
       },
       trigger: null,
     });
-  } catch {
-    // Non-critical - the in-app live stats already show this
+  } catch (err) {
+    // Non-critical - the in-app live stats already show this - but still
+    // worth a log line, since this was previously fully silent and would
+    // hide a real API misuse (bad channel id, bad trigger, ...).
+    console.warn('updateRunNotification failed:', err);
   }
 }
 
 export async function dismissRunNotification() {
   try {
     await Notifications.dismissNotificationAsync(RUN_STATS_NOTIFICATION_ID);
-  } catch {
-    // already dismissed/never shown
+  } catch (err) {
+    // already dismissed/never shown - but log in case it's something else
+    console.warn('dismissRunNotification failed:', err);
   }
 }
 
@@ -88,7 +92,7 @@ export async function refreshDailyRecapNotification(stats: {
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: fireDate },
     });
-  } catch {
-    // Non-critical
+  } catch (err) {
+    console.warn('refreshDailyRecapNotification failed:', err);
   }
 }

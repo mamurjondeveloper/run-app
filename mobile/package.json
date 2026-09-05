@@ -8,6 +8,7 @@
     "axios": "^1.18.1",
     "expo": "~57.0.7",
     "expo-blur": "~57.0.2",
+    "expo-image": "~57.0.4",
     "expo-image-picker": "~57.0.5",
     "expo-location": "~57.0.5",
     "expo-notifications": "~57.0.6",

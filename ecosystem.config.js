@@ -9,6 +9,10 @@ module.exports = {
       name: 'run-backend',
       cwd: './backend',
       script: 'dist/main.js',
+      // Recycle the process if a leak/runaway request (e.g. a very large
+      // GPS path before the DTO cap was added) grows memory unbounded,
+      // instead of it starving the whole VM.
+      max_memory_restart: '300M',
       env: {
         PORT: 4006,
         NODE_ENV: 'production',

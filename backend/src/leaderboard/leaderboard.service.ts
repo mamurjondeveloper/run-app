@@ -12,8 +12,17 @@ export interface LeaderboardEntry {
   points: number;
 }
 
+// The leaderboard changes slowly (only when someone finishes a run) but was
+// being recomputed - a groupBy/aggregate over the whole Run/User tables -
+// from scratch on every single request. A short in-memory cache means the
+// heavy query runs at most once per period per TTL window instead of once
+// per page view.
+const CACHE_TTL_MS = 30_000;
+
 @Injectable()
 export class LeaderboardService {
+  private cache = new Map<string, { expiresAt: number; data: LeaderboardEntry[] }>();
+
   constructor(private prisma: PrismaService) {}
 
   private periodStart(period: LeaderboardPeriod): Date | null {
@@ -30,6 +39,18 @@ export class LeaderboardService {
   }
 
   async getLeaderboard(period: LeaderboardPeriod, limit = 50): Promise<LeaderboardEntry[]> {
+    const cacheKey = `${period}:${limit}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const data = await this.computeLeaderboard(period, limit);
+    this.cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, data });
+    return data;
+  }
+
+  private async computeLeaderboard(period: LeaderboardPeriod, limit: number): Promise<LeaderboardEntry[]> {
     if (period === 'alltime') {
       const stats = await this.prisma.userStats.findMany({
         where: { user: { isBanned: false } },

@@ -5,9 +5,14 @@ import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import * as fs from 'fs';
 import { json, urlencoded } from 'express';
+import compression = require('compression');
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Gzip every response - matters most for mobile clients on cellular data
+  // (JSON run/leaderboard payloads shrink dramatically).
+  app.use(compression());
 
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ limit: '10mb', extended: true }));
@@ -40,7 +45,12 @@ async function bootstrap() {
 
   app.useStaticAssets(uploadsDir, {
     prefix: '/uploads',
+    maxAge: '7d',
   });
+
+  // Let in-flight requests (e.g. a large finish-run upload) drain instead of
+  // being hard-killed when PM2 restarts the process on deploy.
+  app.enableShutdownHooks();
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);

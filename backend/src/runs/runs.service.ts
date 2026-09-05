@@ -150,7 +150,12 @@ export class RunsService {
   }
 
   async finishRun(userId: string, runId: string, dto: FinishRunDto) {
-    const run = await this.prisma.run.findUnique({ where: { id: runId } });
+    // Only the ownership/status check needs this row - no need to pull the
+    // (potentially large) previous `path` blob just to validate and discard it.
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { id: true, userId: true, status: true },
+    });
     if (!run) {
       throw new NotFoundException('Yugurish topilmadi');
     }
@@ -253,7 +258,10 @@ export class RunsService {
   }
 
   async discardRun(userId: string, runId: string) {
-    const run = await this.prisma.run.findUnique({ where: { id: runId } });
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { id: true, userId: true },
+    });
     if (!run) {
       throw new NotFoundException('Yugurish topilmadi');
     }
@@ -267,10 +275,32 @@ export class RunsService {
   }
 
   async getMyRuns(userId: string, limit = 20) {
+    // The history/recent-runs list only ever renders these summary fields
+    // (see mobile App.tsx) - excluding `path` and `plannedRoutePath` (the
+    // full GPS tracks, potentially thousands of points each) keeps this
+    // list payload small instead of multiplying it by every run's track
+    // length. The run-detail screen fetches the full path separately via
+    // getRun() below when a specific run is opened.
     return this.prisma.run.findMany({
       where: { userId, status: 'completed' },
       orderBy: { startedAt: 'desc' },
       take: limit,
+      select: {
+        id: true,
+        userId: true,
+        startedAt: true,
+        endedAt: true,
+        status: true,
+        distanceMeters: true,
+        durationSec: true,
+        avgSpeedKmh: true,
+        maxSpeedKmh: true,
+        pointsEarned: true,
+        flaggedSegments: true,
+        plannedDistanceMeters: true,
+        elevationGainM: true,
+        createdAt: true,
+      },
     });
   }
 

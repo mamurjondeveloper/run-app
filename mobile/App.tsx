@@ -6,7 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Image,
+  FlatList,
   ActivityIndicator,
   StatusBar,
   Alert,
@@ -16,6 +16,10 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+// expo-image instead of RN's built-in Image for avatars: it caches decoded
+// images to disk/memory, so switching tabs or reopening a run detail no
+// longer re-downloads/re-decodes the same avatar every time.
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
@@ -29,8 +33,9 @@ import {
   ACTIVE_RUN_STARTED_AT_KEY,
   readRunPoints,
   clearRunBuffer,
-  computeRunStats,
+  getLiveRunStats,
   RunPoint,
+  RunStats,
 } from './locationTask';
 import LeafletMap from './LeafletMap';
 import LiveLeafletMap, { LiveLeafletMapHandle } from './LiveLeafletMap';
@@ -43,6 +48,36 @@ import {
 } from './notifications';
 
 const SERVER_URL = 'https://api-run.xisd.uz';
+
+// A single shared axios instance instead of creating a new one on every
+// call (the old getApi() did `axios.create(...)` per request) - this also
+// lets us set a timeout (there was none before, so a hung server response
+// meant the app would wait forever) and centralize auth/error handling:
+// the token is attached per-request from `currentToken` (kept in sync with
+// React state via an effect below) rather than baked into the instance at
+// creation time, and a 401 anywhere triggers an automatic logout instead of
+// every screen's fetch silently failing forever against a dead token.
+const api = axios.create({ baseURL: SERVER_URL, timeout: 15000 });
+let currentToken: string | null = null;
+let onUnauthorized: (() => void) | null = null;
+
+api.interceptors.request.use((config) => {
+  if (currentToken) {
+    config.headers = config.headers ?? ({} as any);
+    (config.headers as any).Authorization = `Bearer ${currentToken}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      onUnauthorized?.();
+    }
+    return Promise.reject(error);
+  },
+);
 
 interface UserInfo {
   id: string;
@@ -142,14 +177,17 @@ function AppInner() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [isLoadingHome, setIsLoadingHome] = useState(false);
+  const [homeError, setHomeError] = useState(false);
 
   const [period, setPeriod] = useState<Period>('daily');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState(false);
   const [myRank, setMyRank] = useState<{ rank: number | null; entry: LeaderboardEntry | null }>({ rank: null, entry: null });
 
   const [historyRuns, setHistoryRuns] = useState<Run[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunDetail | null>(null);
   const [isLoadingRunDetail, setIsLoadingRunDetail] = useState(false);
 
@@ -174,6 +212,7 @@ function AppInner() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [livePoints, setLivePoints] = useState<RunPoint[]>([]);
+  const [liveStats, setLiveStats] = useState<RunStats>({ distanceMeters: 0, durationSec: 0, avgSpeedKmh: 0, maxSpeedKmh: 0 });
   const [activePlannedRoute, setActivePlannedRoute] = useState<SuggestedRoute | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [isStartingRun, setIsStartingRun] = useState(false);
@@ -182,12 +221,15 @@ function AppInner() {
   const liveMapRef = useRef<LiveLeafletMapHandle>(null);
   const sentPointCountRef = useRef(0);
   const lastNotifUpdateRef = useRef(0);
+  const leaderboardAbortRef = useRef<AbortController | null>(null);
 
-  const getApi = useCallback(() => {
-    return axios.create({
-      baseURL: SERVER_URL,
-      headers: { Authorization: token ? `Bearer ${token}` : '' },
-    });
+  // getApi() kept as the call-site API (every screen still calls
+  // getApi().get/post/patch(...) exactly as before) but now just hands back
+  // the one shared, pre-configured instance above.
+  const getApi = useCallback(() => api, []);
+
+  useEffect(() => {
+    currentToken = token;
   }, [token]);
 
   useEffect(() => {
@@ -196,10 +238,10 @@ function AppInner() {
         const savedToken = await SecureStore.getItemAsync('runapp_jwt_token');
         if (savedToken) {
           setToken(savedToken);
-          axios
-            .get(`${SERVER_URL}/auth/me`, { headers: { Authorization: `Bearer ${savedToken}` } })
+          api
+            .get('/auth/me', { headers: { Authorization: `Bearer ${savedToken}` } })
             .then((res) => setCurrentUser(res.data))
-            .catch(() => {});
+            .catch((err) => console.warn('Failed to refresh session user:', err?.message));
         }
       } catch (err) {
         console.warn('Failed to restore session:', err);
@@ -241,6 +283,11 @@ function AppInner() {
     const poll = async () => {
       const points = await readRunPoints();
       setLivePoints(points);
+      // getLiveRunStats() reads running totals kept up to date by the
+      // background task as points arrive - O(1), instead of re-walking the
+      // whole path with haversine math on every 2s tick like computeRunStats
+      // (still fine for a one-off full recompute, just not every tick).
+      setLiveStats(getLiveRunStats());
       setNowTick(Date.now());
       setLiveSpeedWarning(lastSegmentTooFast(points));
       if (points.length > sentPointCountRef.current) {
@@ -253,7 +300,7 @@ function AppInner() {
       const now = Date.now();
       if (now - lastNotifUpdateRef.current > 10000) {
         lastNotifUpdateRef.current = now;
-        const liveStats = computeRunStats(points);
+        const liveStats = getLiveRunStats();
         const elapsedSec = runStartedAt ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
         updateRunNotification(liveStats.distanceMeters, elapsedSec, liveStats.avgSpeedKmh || 0);
       }
@@ -268,6 +315,7 @@ function AppInner() {
   const fetchHome = useCallback(async () => {
     if (!token) return;
     setIsLoadingHome(true);
+    setHomeError(false);
     try {
       const [statsRes, runsRes] = await Promise.all([
         getApi().get('/auth/stats'),
@@ -276,8 +324,9 @@ function AppInner() {
       setStats(statsRes.data);
       setRecentRuns(runsRes.data);
       refreshDailyRecapNotification(statsRes.data);
-    } catch {
-      // Non-critical
+    } catch (err: any) {
+      console.warn('fetchHome failed:', err?.message);
+      setHomeError(true);
     } finally {
       setIsLoadingHome(false);
     }
@@ -289,18 +338,28 @@ function AppInner() {
 
   const fetchLeaderboard = useCallback(async () => {
     if (!token) return;
+    // Cancel a still-in-flight request from a previous period switch so a
+    // slower "daily" response can't land after a faster "weekly" one and
+    // overwrite it with stale data.
+    leaderboardAbortRef.current?.abort();
+    const controller = new AbortController();
+    leaderboardAbortRef.current = controller;
+
     setIsLoadingLeaderboard(true);
+    setLeaderboardError(false);
     try {
       const [boardRes, meRes] = await Promise.all([
-        getApi().get(`/leaderboard?period=${period}`),
-        getApi().get(`/leaderboard/me?period=${period}`),
+        getApi().get(`/leaderboard?period=${period}`, { signal: controller.signal }),
+        getApi().get(`/leaderboard/me?period=${period}`, { signal: controller.signal }),
       ]);
       setLeaderboard(boardRes.data);
       setMyRank(meRes.data);
-    } catch {
-      // Non-critical
+    } catch (err: any) {
+      if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') return;
+      console.warn('fetchLeaderboard failed:', err?.message);
+      setLeaderboardError(true);
     } finally {
-      setIsLoadingLeaderboard(false);
+      if (leaderboardAbortRef.current === controller) setIsLoadingLeaderboard(false);
     }
   }, [token, getApi, period]);
 
@@ -311,11 +370,16 @@ function AppInner() {
   const fetchHistory = useCallback(async () => {
     if (!token) return;
     setIsLoadingHistory(true);
+    setHistoryError(false);
     try {
-      const res = await getApi().get('/runs/me?limit=200');
+      // Server clamps this to 100 regardless; kept requesting the same
+      // number here just so this isn't the only place that would need to
+      // change if that cap moves.
+      const res = await getApi().get('/runs/me?limit=100');
       setHistoryRuns(res.data);
-    } catch {
-      // Non-critical
+    } catch (err: any) {
+      console.warn('fetchHistory failed:', err?.message);
+      setHistoryError(true);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -386,7 +450,7 @@ function AppInner() {
     setIsSubmittingAuth(true);
     try {
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
-      const res = await axios.post(`${SERVER_URL}${endpoint}`, { username, password });
+      const res = await api.post(endpoint, { username, password });
       const jwtToken = res.data.access_token;
       await SecureStore.setItemAsync('runapp_jwt_token', jwtToken);
       await AsyncStorage.setItem('runapp_server_url', SERVER_URL);
@@ -407,6 +471,20 @@ function AppInner() {
     setCurrentUser(null);
     setScreen('home');
   };
+
+  const handleLogoutRef = useRef(handleLogout);
+  handleLogoutRef.current = handleLogout;
+
+  // A 401 from any request (expired/invalid token) used to just make every
+  // screen's fetch silently fail forever via its own empty catch{} - the
+  // user stayed stuck on a blank dashboard with no way to tell why. Now it
+  // logs them out automatically so they can sign back in.
+  useEffect(() => {
+    onUnauthorized = () => handleLogoutRef.current();
+    return () => {
+      onUnauthorized = null;
+    };
+  }, []);
 
   const handlePickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -537,6 +615,7 @@ function AppInner() {
       setActiveRunId(runId);
       setRunStartedAt(startedAt);
       setLivePoints([]);
+      setLiveStats({ distanceMeters: 0, durationSec: 0, avgSpeedKmh: 0, maxSpeedKmh: 0 });
       setActivePlannedRoute(plannedRoute ?? null);
       sentPointCountRef.current = 0;
       setLiveSpeedWarning(false);
@@ -591,8 +670,9 @@ function AppInner() {
           "Hisobingiz takroriy tezlik qoidabuzarliklari uchun to'xtatildi. Agar bu xato deb hisoblasangiz, qo'llab-quvvatlash xizmatiga murojaat qiling.",
         );
       }
-      fetchHome();
-      const meRes = await getApi().get('/auth/me').catch(() => null);
+      // These two don't depend on each other - firing them together instead
+      // of one after the other saves a full network round trip.
+      const [, meRes] = await Promise.all([fetchHome(), getApi().get('/auth/me').catch(() => null)]);
       if (meRes) setCurrentUser(meRes.data);
     } catch (err: any) {
       Alert.alert('Xato', err.response?.data?.message || "Yugurishni saqlab bo'lmadi");
@@ -611,7 +691,13 @@ function AppInner() {
           try {
             await finishTracking();
             if (activeRunId) {
-              await getApi().patch(`/runs/${activeRunId}/discard`).catch(() => {});
+              // Best-effort: local state is cleared regardless (below) so the
+              // user isn't stuck if this fails, but log it - if the server
+              // call fails here, that run stays "in_progress" server-side
+              // with nothing to ever finish or discard it.
+              await getApi()
+                .patch(`/runs/${activeRunId}/discard`)
+                .catch((err) => console.warn('Failed to discard run server-side:', err?.message));
             }
           } finally {
             await clearRunBuffer();
@@ -749,6 +835,13 @@ function AppInner() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
+            {homeError && (
+              <TouchableOpacity onPress={fetchHome} style={{ paddingVertical: 10 }}>
+                <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
+                  Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
+                </Text>
+              </TouchableOpacity>
+            )}
             {isLoadingHome && !stats ? (
               <ActivityIndicator color="#22c55e" style={{ marginTop: 40 }} />
             ) : (
@@ -808,6 +901,13 @@ function AppInner() {
 
         {screen === 'leaderboard' && (
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {leaderboardError && (
+              <TouchableOpacity onPress={fetchLeaderboard} style={{ paddingVertical: 10 }}>
+                <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
+                  Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
+                </Text>
+              </TouchableOpacity>
+            )}
             <View style={styles.periodTabs}>
               {(['daily', 'weekly', 'alltime'] as Period[]).map((p) => (
                 <TouchableOpacity
@@ -876,28 +976,45 @@ function AppInner() {
         )}
 
         {screen === 'history' && (
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {isLoadingHistory ? (
-              <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
-            ) : historyRuns.length === 0 ? (
-              <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
-            ) : (
-              historyRuns.map((run) => (
-                <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
-                  <View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.runRowDate}>{new Date(run.startedAt).toLocaleDateString()}</Text>
-                      {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
-                    </View>
-                    <Text style={styles.runRowMeta}>
-                      {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
-                    </Text>
-                  </View>
-                  <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
+          // FlatList instead of ScrollView+.map() - up to 100 rows used to
+          // all mount at once with no virtualization; FlatList only renders
+          // what's near the viewport.
+          <FlatList
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            data={historyRuns}
+            keyExtractor={(run) => run.id}
+            ListHeaderComponent={
+              historyError ? (
+                <TouchableOpacity onPress={fetchHistory} style={{ paddingVertical: 10 }}>
+                  <Text style={[styles.emptyText, { color: '#f59e0b' }]}>
+                    Ma&apos;lumotlarni yuklab bo&apos;lmadi. Qayta urinish uchun bosing.
+                  </Text>
                 </TouchableOpacity>
-              ))
+              ) : null
+            }
+            ListEmptyComponent={
+              isLoadingHistory ? (
+                <ActivityIndicator color="#22c55e" style={{ marginTop: 24 }} />
+              ) : (
+                <Text style={styles.emptyText}>Hali yugurishlar yo'q</Text>
+              )
+            }
+            renderItem={({ item: run }) => (
+              <TouchableOpacity style={styles.runRow} onPress={() => openRunDetail(run.id)}>
+                <View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.runRowDate}>{new Date(run.startedAt).toLocaleDateString()}</Text>
+                    {!!run.flaggedSegments && <Ionicons name="warning-outline" size={12} color="#f59e0b" />}
+                  </View>
+                  <Text style={styles.runRowMeta}>
+                    {formatKm(run.distanceMeters)} km · {Math.round(run.durationSec / 60)} daq · {run.avgSpeedKmh} km/h
+                  </Text>
+                </View>
+                <Text style={styles.runRowPoints}>+{run.pointsEarned} ball</Text>
+              </TouchableOpacity>
             )}
-          </ScrollView>
+          />
         )}
 
         {screen === 'plan' && (
@@ -1102,7 +1219,6 @@ function AppInner() {
         <View style={styles.liveMapRoot}>
           <StatusBar barStyle="light-content" />
           {(() => {
-            const liveStats = computeRunStats(livePoints);
             const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
             const mins = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
             const secs = (elapsedSec % 60).toString().padStart(2, '0');
@@ -1262,7 +1378,20 @@ function AppInner() {
   );
 }
 
-function StatCard({ icon, label, value, width }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; width: number }) {
+// Memoized since AppInner re-renders as a whole on every 2s live-run poll
+// tick - these otherwise re-render right along with it even though their
+// own props rarely change.
+const StatCard = React.memo(function StatCard({
+  icon,
+  label,
+  value,
+  width,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  width: number;
+}) {
   const cardWidth = (Math.min(width, 600) - 20 * 2 - 12) / 2;
   return (
     <View style={[styles.statCard, { width: cardWidth }]}>
@@ -1271,7 +1400,7 @@ function StatCard({ icon, label, value, width }: { icon: keyof typeof Ionicons.g
       <Text style={styles.statCardLabel}>{label}</Text>
     </View>
   );
-}
+});
 
 export default function App() {
   return (

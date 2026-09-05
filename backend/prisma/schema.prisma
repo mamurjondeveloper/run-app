@@ -1,6 +1,9 @@
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  // Was hardcoded to "file:./dev.db", making the DATABASE_URL in .env dead
+  // config that looked like it controlled the DB location but didn't. Same
+  // value, now actually read from the environment.
+  url      = env("DATABASE_URL")
 }
 
 generator client {
