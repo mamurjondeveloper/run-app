@@ -69,6 +69,9 @@ import Avatar from './ui/Avatar';
 import PulseDot from './ui/PulseDot';
 import AppAlertHost, { showAlert } from './ui/AppAlert';
 import { SkeletonBlock } from './ui/Skeleton';
+import FloatingOrbs from './ui/FloatingOrbs';
+import CelebrationModal, { CelebrationData } from './ui/CelebrationModal';
+import AnimatedNumber from './ui/AnimatedNumber';
 
 const WEEKLY_GOAL_KEY = 'runapp_weekly_goal_km';
 const DEFAULT_WEEKLY_GOAL_KM = 20;
@@ -176,6 +179,14 @@ function greeting(): string {
   return 'Xayrli kech';
 }
 
+function greetingSticker(): string {
+  const h = new Date().getHours();
+  if (h < 6) return '🌙';
+  if (h < 12) return '☀️';
+  if (h < 18) return '🌤️';
+  return '🌆';
+}
+
 function formatRunDay(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
@@ -252,6 +263,7 @@ function AppInner() {
   const [planError, setPlanError] = useState<string | null>(null);
 
   const [liveSpeedWarning, setLiveSpeedWarning] = useState(false);
+  const [celebration, setCelebration] = useState<CelebrationData | null>(null);
 
   const [profileUsername, setProfileUsername] = useState('');
   const [isSavingUsername, setIsSavingUsername] = useState(false);
@@ -278,6 +290,22 @@ function AppInner() {
 
   const [isOffline, setIsOffline] = useState(false);
   const screenFade = useRef(new Animated.Value(1)).current;
+
+  const authLogoAnim = useRef(new Animated.Value(0)).current;
+  const authTextAnim = useRef(new Animated.Value(0)).current;
+  const authCardAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    // A login screen that just appears is fine; one where the logo pops in
+    // first, the tagline settles a beat later, and the form slides up last
+    // reads as a designed sequence rather than a single static frame - the
+    // detail a template rarely bothers with because it costs nothing to
+    // skip and nothing to add.
+    Animated.stagger(120, [
+      Animated.spring(authLogoAnim, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 12 }),
+      Animated.timing(authTextAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.timing(authCardAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+    ]).start();
+  }, [authLogoAnim, authTextAnim, authCardAnim]);
 
   const [weeklyGoalKm, setWeeklyGoalKm] = useState(DEFAULT_WEEKLY_GOAL_KM);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -792,11 +820,12 @@ function AppInner() {
       setLiveSpeedWarning(false);
       setIsRunModalVisible(false);
 
-      if (res.data.warning) {
-        showAlert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.\n\n${res.data.warning}`);
-      } else {
-        showAlert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.`);
-      }
+      setCelebration({
+        distanceKm: res.data.distanceMeters / 1000,
+        pointsEarned: res.data.pointsEarned,
+        durationSec: res.data.durationSec,
+        warning: res.data.warning,
+      });
       if (res.data.banned) {
         showAlert(
           "Hisob to'xtatildi",
@@ -865,24 +894,52 @@ function AppInner() {
     return (
       <View style={styles.loginContainer}>
         <StatusBar barStyle="light-content" />
-        {/* Soft off-center glow instead of a flat black canvas - the single
-            biggest "someone designed this" signal a login screen can carry
-            for free. */}
-        <View style={styles.loginGlow} pointerEvents="none" />
+        {/* Three slow-drifting color fields instead of one static glow - the
+            login screen is the one place a person sits still long enough to
+            actually notice whether the background is alive or not. */}
+        <FloatingOrbs />
         <SafeAreaView style={{ flex: 1 }}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <ScrollView contentContainerStyle={styles.loginScroll} keyboardShouldPersistTaps="handled">
               <View style={styles.logoContainer}>
-                <LinearGradient colors={[colors.accent, colors.accentDeep]} style={styles.logoBadge}>
-                  <Ionicons name="footsteps" size={34} color={colors.onAccent} />
-                </LinearGradient>
-                <Text style={styles.logoText}>RunApp</Text>
-                <Text style={styles.logoSubtext}>
-                  {authMode === 'login' ? "Yuguring. Musobaqalashing. G'oling." : 'Hisobingizni yarating'}
-                </Text>
+                <Animated.View
+                  style={{
+                    opacity: authLogoAnim,
+                    transform: [
+                      { scale: authLogoAnim },
+                      {
+                        rotate: authLogoAnim.interpolate({ inputRange: [0, 1], outputRange: ['-16deg', '0deg'] }),
+                      },
+                    ],
+                  }}
+                >
+                  <LinearGradient colors={[colors.accent, colors.accentDeep]} style={styles.logoBadge}>
+                    <Ionicons name="footsteps" size={34} color={colors.onAccent} />
+                  </LinearGradient>
+                  <Text style={styles.logoSticker}>👟</Text>
+                </Animated.View>
+                <Animated.View
+                  style={{
+                    opacity: authTextAnim,
+                    transform: [{ translateY: authTextAnim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+                  }}
+                >
+                  <Text style={styles.logoText}>RunApp</Text>
+                  <Text style={styles.logoSubtext}>
+                    {authMode === 'login' ? "Yuguring. Musobaqalashing. G'oling. 🔥" : 'Hisobingizni yarating ✨'}
+                  </Text>
+                </Animated.View>
               </View>
 
-              <View style={styles.loginCard}>
+              <Animated.View
+                style={[
+                  styles.loginCard,
+                  {
+                    opacity: authCardAnim,
+                    transform: [{ translateY: authCardAnim.interpolate({ inputRange: [0, 1], outputRange: [26, 0] }) }],
+                  },
+                ]}
+              >
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>FOYDALANUVCHI NOMI</Text>
                   <View style={styles.inputWrapper}>
@@ -945,7 +1002,7 @@ function AppInner() {
                     </Text>
                   </Text>
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -960,7 +1017,9 @@ function AppInner() {
       <View style={styles.header}>
         {screen === 'home' ? (
           <View>
-            <Text style={styles.headerGreeting}>{greeting()}</Text>
+            <Text style={styles.headerGreeting}>
+              {greeting()} {greetingSticker()}
+            </Text>
             <Text style={styles.headerTitle}>{currentUser.username}</Text>
           </View>
         ) : (
@@ -1037,10 +1096,39 @@ function AppInner() {
                 </PressableScale>
 
                 <View style={styles.statsGrid}>
-                  <StatCard icon="footsteps-outline" label="Masofa" value={`${formatKm(stats?.totalDistanceM ?? 0)}`} unit="km" width={screenWidth} />
-                  <StatCard icon="trophy-outline" label="Ballar" value={`${stats?.totalPoints ?? 0}`} width={screenWidth} tint="amber" />
-                  <StatCard icon="speedometer-outline" label="O'rtacha tezlik" value={`${stats?.avgSpeedKmh ?? 0}`} unit="km/h" width={screenWidth} />
-                  <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0}`} unit="kun" width={screenWidth} tint="amber" />
+                  <StatCard
+                    icon="footsteps-outline"
+                    label="Masofa"
+                    value={formatKm(stats?.totalDistanceM ?? 0)}
+                    animateFrom={parseFloat(formatKm(stats?.totalDistanceM ?? 0))}
+                    unit="km"
+                    width={screenWidth}
+                  />
+                  <StatCard
+                    icon="trophy-outline"
+                    label="Ballar"
+                    value={`${stats?.totalPoints ?? 0}`}
+                    animateFrom={stats?.totalPoints ?? 0}
+                    width={screenWidth}
+                    tint="amber"
+                  />
+                  <StatCard
+                    icon="speedometer-outline"
+                    label="O'rtacha tezlik"
+                    value={`${stats?.avgSpeedKmh ?? 0}`}
+                    animateFrom={stats?.avgSpeedKmh ?? 0}
+                    unit="km/h"
+                    width={screenWidth}
+                  />
+                  <StatCard
+                    icon="flame-outline"
+                    label="Ketma-ketlik"
+                    value={`${stats?.currentStreakDays ?? 0}`}
+                    animateFrom={stats?.currentStreakDays ?? 0}
+                    unit="kun"
+                    width={screenWidth}
+                    tint="amber"
+                  />
                 </View>
 
                 <View style={styles.goalCard}>
@@ -1098,6 +1186,7 @@ function AppInner() {
                 {recentRuns.length === 0 ? (
                   <EmptyState
                     icon="footsteps-outline"
+                    sticker="🏃"
                     title="Hali yugurishlar yo'q"
                     subtitle="Birinchi yugurishingizni boshlab, statistikangizni shu yerda kuzating."
                     compact
@@ -1162,6 +1251,7 @@ function AppInner() {
             ) : leaderboard.length === 0 ? (
               <EmptyState
                 icon="trophy-outline"
+                sticker="🏆"
                 title="Bu davrda hali yugurishlar qayd etilmagan"
                 subtitle="Birinchi bo'lib yugurib, reytingni boshlang."
               />
@@ -1176,6 +1266,7 @@ function AppInner() {
                     const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : colors.bronze;
                     return (
                       <View key={entry.userId} style={[styles.podiumSlot, isFirst && styles.podiumSlotFirst]}>
+                        {isFirst && <Text style={styles.podiumCrown}>👑</Text>}
                         <Avatar
                           uri={entry.avatarUrl ? `${SERVER_URL}${entry.avatarUrl}` : null}
                           name={entry.username}
@@ -1254,7 +1345,7 @@ function AppInner() {
               isLoadingHistory ? (
                 <HistorySkeleton />
               ) : (
-                <EmptyState icon="time-outline" title="Hali yugurishlar yo'q" subtitle="Yugurishlaringiz shu yerda tarix bo'lib to'planadi." />
+                <EmptyState icon="time-outline" sticker="🗂️" title="Hali yugurishlar yo'q" subtitle="Yugurishlaringiz shu yerda tarix bo'lib to'planadi." />
               )
             }
             renderItem={({ item: run }) => (
@@ -1718,6 +1809,8 @@ function AppInner() {
           )}
         </SafeAreaView>
       </Modal>
+
+      <CelebrationModal data={celebration} onClose={() => setCelebration(null)} />
     </SafeAreaView>
   );
 }
@@ -1732,6 +1825,7 @@ const StatCard = React.memo(function StatCard({
   unit,
   width,
   tint = 'green',
+  animateFrom,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -1740,17 +1834,26 @@ const StatCard = React.memo(function StatCard({
   width: number;
   /** 'amber' for point/streak-flavored stats so the grid isn't monochrome. */
   tint?: 'green' | 'amber';
+  /** When given a finite number, the value counts up from 0 on mount/change
+   *  instead of just appearing - `value`'s decimal count is inferred from
+   *  its own formatting so "12.34" and "0" both animate correctly. */
+  animateFrom?: number;
 }) {
   const cardWidth = (Math.min(width, 600) - space.xl * 2 - space.md) / 2;
   const tintColor = tint === 'amber' ? colors.amber : colors.accent;
   const tintSoft = tint === 'amber' ? colors.amberSoft : colors.accentSoft;
+  const decimals = value.includes('.') ? value.split('.')[1].length : 0;
   return (
     <View style={[styles.statCard, { width: cardWidth }]}>
       <View style={[styles.statCardIconWrap, { backgroundColor: tintSoft }]}>
         <Ionicons name={icon} size={16} color={tintColor} />
       </View>
       <View style={styles.statCardValueRow}>
-        <Text style={styles.statCardValue}>{value}</Text>
+        {animateFrom != null && !Number.isNaN(animateFrom) ? (
+          <AnimatedNumber value={animateFrom} decimals={decimals} style={styles.statCardValue as any} />
+        ) : (
+          <Text style={styles.statCardValue}>{value}</Text>
+        )}
         {!!unit && <Text style={styles.statCardUnit}> {unit}</Text>}
       </View>
       <Text style={styles.statCardLabel}>{label}</Text>
@@ -1853,18 +1956,6 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingContainer: { flex: 1, backgroundColor: colors.bg0, alignItems: 'center', justifyContent: 'center' },
   loginContainer: { flex: 1, backgroundColor: colors.bg0 },
-  // A big soft-edged accent circle bleeding off the top corner - the
-  // cheapest possible way to make a plain dark screen feel lit rather than
-  // flat. Purely decorative, pointerEvents disabled.
-  loginGlow: {
-    position: 'absolute',
-    top: -180,
-    right: -120,
-    width: 420,
-    height: 420,
-    borderRadius: 210,
-    backgroundColor: colors.accentSoft,
-  },
   loginScroll: { flexGrow: 1, justifyContent: 'center', padding: space.xl },
   loginCard: {
     backgroundColor: colors.bg1,
@@ -1883,8 +1974,15 @@ const styles = StyleSheet.create({
     ...shadow.soft,
     shadowColor: colors.accentDeep,
   },
-  logoText: { fontSize: 30, lineHeight: 38, fontFamily: font.display, color: colors.text, marginTop: space.md, letterSpacing: 0.2 },
-  logoSubtext: { fontSize: 12.5, color: colors.textDim, marginTop: 6, fontFamily: font.bodySemi, textTransform: 'uppercase', letterSpacing: 1 },
+  logoSticker: {
+    position: 'absolute',
+    fontSize: 22,
+    top: -10,
+    right: -14,
+    transform: [{ rotate: '18deg' }],
+  },
+  logoText: { fontSize: 30, lineHeight: 38, fontFamily: font.display, color: colors.text, marginTop: space.md, letterSpacing: 0.2, textAlign: 'center' },
+  logoSubtext: { fontSize: 12.5, color: colors.textDim, marginTop: 6, fontFamily: font.bodySemi, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center' },
   inputGroup: { marginBottom: space.lg },
   inputLabel: { fontSize: 10.5, fontFamily: font.bodyExtraBold, color: colors.textDim, marginBottom: space.sm, letterSpacing: 1.4 },
   inputWrapper: {
@@ -2015,6 +2113,7 @@ const styles = StyleSheet.create({
   podiumRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'center', gap: space.sm, marginBottom: space.xl },
   podiumSlot: { flex: 1, alignItems: 'center', backgroundColor: colors.bg1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: space.lg, paddingHorizontal: space.xs },
   podiumSlotFirst: { paddingVertical: space.xl, backgroundColor: colors.bg2, borderColor: colors.borderStrong },
+  podiumCrown: { fontSize: 22, marginBottom: -6, transform: [{ rotate: '-8deg' }] },
   podiumRankBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginTop: -11, borderWidth: 2, borderColor: colors.bg1 },
   podiumRankText: { color: colors.onAccent, fontSize: 11, fontFamily: font.bodyExtraBold },
   podiumName: { color: colors.text, fontSize: 12, fontFamily: font.bodySemi, marginTop: space.sm, maxWidth: 84 },
@@ -2095,7 +2194,13 @@ const styles = StyleSheet.create({
   runModalStatDivider: { width: 1, height: 28, backgroundColor: colors.border },
   runModalStatValue: { color: colors.accent, fontSize: 26, lineHeight: 32, fontFamily: font.display },
   runModalStatLabel: { color: colors.textDim, fontSize: 10.5, fontFamily: font.bodyExtraBold, letterSpacing: 1, marginTop: 4 },
-  runModalActions: { flexDirection: 'row', gap: space.md, marginBottom: space.md },
+  // elevation/zIndex: on some Android/emulator combinations a native
+  // BlurView surface (the stats panel directly above this row) can end up
+  // compositing above plain sibling Views despite JSX/paint order, silently
+  // swallowing touches meant for the buttons below it - forcing this row's
+  // own Android elevation above the blur's makes it unambiguously the
+  // topmost hit-testable layer.
+  runModalActions: { flexDirection: 'row', gap: space.md, marginBottom: space.md, zIndex: 10, elevation: 10 },
   runModalDiscardButton: {
     flexDirection: 'row',
     alignItems: 'center',
