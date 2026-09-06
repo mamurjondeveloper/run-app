@@ -1,7 +1,13 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { FinishRunDto, RunPointDto } from './dto/finish-run.dto';
 import { StartRunDto } from './dto/start-run.dto';
+import { AuthService } from '../auth/auth.service';
 
 // Faster than this is not running — a bus, metro, or car. Segments implying a
 // speed above this are excluded from the distance/points calculation instead
@@ -19,12 +25,16 @@ const BAN_THRESHOLD_VIOLATIONS = 5;
 const MAX_GAP_SECONDS = 30;
 
 function startOfUTCDate(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
 }
 
 function daysBetween(a: Date, b: Date): number {
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  return Math.round((startOfUTCDate(a).getTime() - startOfUTCDate(b).getTime()) / MS_PER_DAY);
+  return Math.round(
+    (startOfUTCDate(a).getTime() - startOfUTCDate(b).getTime()) / MS_PER_DAY,
+  );
 }
 
 function haversineMeters(a: RunPointDto, b: RunPointDto): number {
@@ -33,7 +43,9 @@ function haversineMeters(a: RunPointDto, b: RunPointDto): number {
   const dLng = ((b.lng - a.lng) * Math.PI) / 180;
   const lat1 = (a.lat * Math.PI) / 180;
   const lat2 = (b.lat * Math.PI) / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
@@ -76,7 +88,8 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
       continue;
     }
 
-    const impliedSpeedKmh = segmentSec > 0 ? segmentMeters / 1000 / (segmentSec / 3600) : 0;
+    const impliedSpeedKmh =
+      segmentSec > 0 ? segmentMeters / 1000 / (segmentSec / 3600) : 0;
     if (impliedSpeedKmh > MAX_RUNNING_SPEED_KMH) {
       flaggedSegments++;
       continue;
@@ -88,18 +101,27 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
     }
     // Altitude is best-effort (many devices/browsers never report it) - only
     // count a gain when both points in the segment actually have a reading.
-    if (typeof prev.alt === 'number' && typeof curr.alt === 'number' && curr.alt > prev.alt) {
+    if (
+      typeof prev.alt === 'number' &&
+      typeof curr.alt === 'number' &&
+      curr.alt > prev.alt
+    ) {
       elevationGainM += curr.alt - prev.alt;
     }
   }
 
-  const durationSec = Math.max(0, Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000));
-  const avgSpeedKmh = durationSec > 0 ? distanceMeters / 1000 / (durationSec / 3600) : 0;
+  const durationSec = Math.max(
+    0,
+    Math.round((sorted[sorted.length - 1].ts - sorted[0].ts) / 1000),
+  );
+  const avgSpeedKmh =
+    durationSec > 0 ? distanceMeters / 1000 / (durationSec / 3600) : 0;
   // Prefer device-reported instantaneous speed where available (more accurate
   // than a segment average), but fall back to the segment-implied speed above
   // so this stat isn't 0 just because a browser/device never reports coords.speed.
   const maxReportedSpeedKmh = sorted.reduce((max, p) => {
-    if (p.speedKmh && p.speedKmh <= MAX_RUNNING_SPEED_KMH && p.speedKmh > max) return p.speedKmh;
+    if (p.speedKmh && p.speedKmh <= MAX_RUNNING_SPEED_KMH && p.speedKmh > max)
+      return p.speedKmh;
     return max;
   }, 0);
   const maxSpeedKmh = Math.max(maxReportedSpeedKmh, maxSegmentSpeedKmh);
@@ -116,13 +138,17 @@ function computeStatsFromPath(path: RunPointDto[]): ComputedRunStats {
 
 @Injectable()
 export class RunsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private authService: AuthService,
+  ) {}
 
   async startRun(userId: string, dto?: StartRunDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (user?.isBanned) {
       throw new ForbiddenException(
-        user.bannedReason || "Hisobingiz takroriy shubhali tezlik faoliyati uchun to'xtatilgan.",
+        user.bannedReason ||
+          "Hisobingiz takroriy shubhali tezlik faoliyati uchun to'xtatilgan.",
       );
     }
 
@@ -133,7 +159,9 @@ export class RunsService {
     if (existing) {
       return {
         ...existing,
-        plannedRoutePath: existing.plannedRoutePath ? JSON.parse(existing.plannedRoutePath) : null,
+        plannedRoutePath: existing.plannedRoutePath
+          ? JSON.parse(existing.plannedRoutePath)
+          : null,
       };
     }
 
@@ -141,7 +169,9 @@ export class RunsService {
       data: {
         userId,
         status: 'in_progress',
-        plannedRoutePath: dto?.plannedRoutePath ? JSON.stringify(dto.plannedRoutePath) : null,
+        plannedRoutePath: dto?.plannedRoutePath
+          ? JSON.stringify(dto.plannedRoutePath)
+          : null,
         plannedDistanceMeters: dto?.plannedDistanceMeters ?? null,
       },
     });
@@ -163,7 +193,9 @@ export class RunsService {
       throw new ForbiddenException('Bu yugurish sizga tegishli emas');
     }
     if (run.status !== 'in_progress') {
-      throw new BadRequestException('Bu yugurish allaqachon tugatilgan yoki bekor qilingan');
+      throw new BadRequestException(
+        'Bu yugurish allaqachon tugatilgan yoki bekor qilingan',
+      );
     }
 
     const computed = computeStatsFromPath(dto.path);
@@ -195,12 +227,17 @@ export class RunsService {
         currentStreakDays = 1;
       }
     }
-    const longestStreakDays = Math.max(stats.longestStreakDays, currentStreakDays);
+    const longestStreakDays = Math.max(
+      stats.longestStreakDays,
+      currentStreakDays,
+    );
 
     const streakBonus = Math.min(currentStreakDays, 30) * 5;
-    const pointsEarned = Math.round(computed.distanceMeters / 100) + streakBonus;
+    const pointsEarned =
+      Math.round(computed.distanceMeters / 100) + streakBonus;
 
-    const speedViolationCount = stats.speedViolationCount + (computed.flaggedSegments > 0 ? 1 : 0);
+    const speedViolationCount =
+      stats.speedViolationCount + (computed.flaggedSegments > 0 ? 1 : 0);
     const shouldBan = speedViolationCount >= BAN_THRESHOLD_VIOLATIONS;
 
     const [updatedRun] = await this.prisma.$transaction([
@@ -225,7 +262,10 @@ export class RunsService {
           totalDistanceM: stats.totalDistanceM + computed.distanceMeters,
           totalRuns: stats.totalRuns + 1,
           totalPoints: stats.totalPoints + pointsEarned,
-          bestMaxSpeedKmh: Math.max(stats.bestMaxSpeedKmh, computed.maxSpeedKmh),
+          bestMaxSpeedKmh: Math.max(
+            stats.bestMaxSpeedKmh,
+            computed.maxSpeedKmh,
+          ),
           currentStreakDays,
           longestStreakDays,
           lastRunDate: now,
@@ -246,9 +286,18 @@ export class RunsService {
         : []),
     ]);
 
+    if (shouldBan) {
+      // The JWT strategy's cached isBanned/bannedReason (see auth.service.ts)
+      // would otherwise let this user's next few requests through as
+      // not-banned for up to the cache's TTL.
+      this.authService.invalidateUserCache(userId);
+    }
+
     return {
       ...updatedRun,
-      plannedRoutePath: updatedRun.plannedRoutePath ? JSON.parse(updatedRun.plannedRoutePath) : null,
+      plannedRoutePath: updatedRun.plannedRoutePath
+        ? JSON.parse(updatedRun.plannedRoutePath)
+        : null,
       warning:
         computed.flaggedSegments > 0
           ? `Bu yugurishning ${computed.flaggedSegments} qismi yugurish tezligidan tez bo'lgani uchun hisoblanmadi.`
@@ -315,7 +364,9 @@ export class RunsService {
     return {
       ...run,
       path: run.path ? JSON.parse(run.path) : [],
-      plannedRoutePath: run.plannedRoutePath ? JSON.parse(run.plannedRoutePath) : null,
+      plannedRoutePath: run.plannedRoutePath
+        ? JSON.parse(run.plannedRoutePath)
+        : null,
     };
   }
 }

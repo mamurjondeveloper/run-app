@@ -35,7 +35,10 @@ export class AuthController {
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto.username, registerDto.password);
+    return this.authService.register(
+      registerDto.username,
+      registerDto.password,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
@@ -52,22 +55,41 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Post('avatar')
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadAvatar(@CurrentUser() user: any, @UploadedFile() file: Express.Multer.File) {
+  // Without a limit, multer's default in-memory storage will buffer an
+  // arbitrarily large upload (a phone camera photo can be 10-20MB) entirely
+  // in process memory before validation even runs. 8MB comfortably covers a
+  // real photo; updateAvatar() below re-encodes whatever gets through down
+  // to a small, fixed-size JPEG anyway.
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }),
+  )
+  async uploadAvatar(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     if (!file) {
-      throw new BadRequestException('Fayl yuklanmadi');
+      throw new BadRequestException('Fayl yuklanmadi yoki hajmi 8MB dan katta');
     }
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedMimeTypes.includes(file.mimetype)) {
-      throw new BadRequestException("Qo'llab-quvvatlanmaydigan rasm formati. Qo'llab-quvvatlanadi: JPG, PNG, WEBP");
+      throw new BadRequestException(
+        "Qo'llab-quvvatlanmaydigan rasm formati. Qo'llab-quvvatlanadi: JPG, PNG, WEBP",
+      );
     }
     return this.authService.updateAvatar(user.id, file);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('change-password')
-  async changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
-    return this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(
+      user.id,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
