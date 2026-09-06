@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,15 +6,16 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  FlatList,
+  SectionList,
+  RefreshControl,
   ActivityIndicator,
   StatusBar,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
   Modal,
   Animated,
+  Share,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // expo-image instead of RN's built-in Image for avatars: it caches decoded
@@ -28,6 +29,9 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
+import NetInfo from '@react-native-community/netinfo';
+import Constants from 'expo-constants';
 import axios from 'axios';
 import { useFonts, Manrope_400Regular, Manrope_500Medium, Manrope_600SemiBold, Manrope_700Bold, Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { Sora_600SemiBold, Sora_800ExtraBold } from '@expo-google-fonts/sora';
@@ -63,6 +67,11 @@ import EmptyState from './ui/EmptyState';
 import SegmentedControl from './ui/SegmentedControl';
 import Avatar from './ui/Avatar';
 import PulseDot from './ui/PulseDot';
+import AppAlertHost, { showAlert } from './ui/AppAlert';
+import { SkeletonBlock } from './ui/Skeleton';
+
+const WEEKLY_GOAL_KEY = 'runapp_weekly_goal_km';
+const DEFAULT_WEEKLY_GOAL_KM = 20;
 
 const SERVER_URL = 'https://api-run.xisd.uz';
 
@@ -237,7 +246,6 @@ function AppInner() {
   const [isLoadingRunDetail, setIsLoadingRunDetail] = useState(false);
 
   const [planTargetKm, setPlanTargetKm] = useState(5);
-  const [manualPlanKmInput, setManualPlanKmInput] = useState('5');
   const [isLocatingForPlan, setIsLocatingForPlan] = useState(false);
   const [isSuggestingRoute, setIsSuggestingRoute] = useState(false);
   const [suggestedRoute, setSuggestedRoute] = useState<SuggestedRoute | null>(null);
@@ -267,6 +275,16 @@ function AppInner() {
   const sentPointCountRef = useRef(0);
   const lastNotifUpdateRef = useRef(0);
   const leaderboardAbortRef = useRef<AbortController | null>(null);
+
+  const [isOffline, setIsOffline] = useState(false);
+  const screenFade = useRef(new Animated.Value(1)).current;
+
+  const [weeklyGoalKm, setWeeklyGoalKm] = useState(DEFAULT_WEEKLY_GOAL_KM);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState(String(DEFAULT_WEEKLY_GOAL_KM));
+
+  const newPasswordRef = useRef<TextInput>(null);
+  const confirmPasswordRef = useRef<TextInput>(null);
 
   // getApi() kept as the call-site API (every screen still calls
   // getApi().get/post/patch(...) exactly as before) but now just hands back
@@ -300,6 +318,51 @@ function AppInner() {
   useEffect(() => {
     setupNotificationChannels();
   }, []);
+
+  // A network blip used to just make screens fail silently (empty catch
+  // blocks) with no indication of why nothing was loading. A persistent
+  // banner makes "why is this stuck" obvious instead of looking broken.
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      setIsOffline(state.isConnected === false || state.isInternetReachable === false);
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WEEKLY_GOAL_KEY)
+      .then((saved) => {
+        const parsed = saved ? parseFloat(saved) : NaN;
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          setWeeklyGoalKm(parsed);
+          setGoalInput(String(parsed));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveWeeklyGoal = () => {
+    const parsed = parseFloat(goalInput.replace(',', '.'));
+    if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 500) {
+      setWeeklyGoalKm(parsed);
+      AsyncStorage.setItem(WEEKLY_GOAL_KEY, String(parsed)).catch(() => {});
+    } else {
+      setGoalInput(String(weeklyGoalKm));
+    }
+    setIsEditingGoal(false);
+  };
+
+  // A hard cut between tabs (the old behavior) is fine, but a quick
+  // fade-through makes switching screens feel like a designed transition
+  // instead of a plain state swap - and doubles as the tab bar's haptic tick.
+  const switchScreen = (next: Screen) => {
+    if (next === screen) return;
+    Haptics.selectionAsync().catch(() => {});
+    Animated.timing(screenFade, { toValue: 0, duration: 90, useNativeDriver: true }).start(() => {
+      setScreen(next);
+      Animated.timing(screenFade, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+    });
+  };
 
   // If the app was killed/relaunched mid-run, reopen the tracking screen instead
   // of silently losing track of it.
@@ -381,6 +444,13 @@ function AppInner() {
     if (token && screen === 'home') fetchHome();
   }, [token, screen, fetchHome]);
 
+  // Profile's "Rekordlar" card reads from the same `stats` the Home tab
+  // fetches - load it here too in case Profile is opened first (e.g. right
+  // after login) and Home never ran its own fetch yet.
+  useEffect(() => {
+    if (token && screen === 'profile' && !stats) fetchHome();
+  }, [token, screen, stats, fetchHome]);
+
   const fetchLeaderboard = useCallback(async () => {
     if (!token) return;
     // Cancel a still-in-flight request from a previous period switch so a
@@ -434,6 +504,24 @@ function AppInner() {
     if (token && screen === 'history') fetchHistory();
   }, [token, screen, fetchHistory]);
 
+  // Grouped by calendar month so a long history reads as "September, August,
+  // July…" instead of one undifferentiated scroll of rows - the list is
+  // already sorted newest-first by the server, so this only needs to bucket
+  // it, not re-sort anything.
+  const historySections = useMemo(() => {
+    const order: string[] = [];
+    const groups = new Map<string, Run[]>();
+    for (const run of historyRuns) {
+      const key = new Date(run.startedAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      if (!groups.has(key)) {
+        groups.set(key, []);
+        order.push(key);
+      }
+      groups.get(key)!.push(run);
+    }
+    return order.map((title) => ({ title, data: groups.get(title)! }));
+  }, [historyRuns]);
+
   const openRunDetail = async (runId: string) => {
     setIsLoadingRunDetail(true);
     setSelectedRun(null);
@@ -441,7 +529,7 @@ function AppInner() {
       const res = await getApi().get(`/runs/${runId}`);
       setSelectedRun(res.data);
     } catch {
-      Alert.alert('Xato', "Bu yugurishni yuklab bo'lmadi");
+      showAlert('Xato', "Bu yugurishni yuklab bo'lmadi");
     } finally {
       setIsLoadingRunDetail(false);
     }
@@ -489,7 +577,7 @@ function AppInner() {
 
   const handleAuthSubmit = async () => {
     if (!username || !password) {
-      Alert.alert('Xato', "Barcha maydonlarni to'ldiring");
+      showAlert('Xato', "Barcha maydonlarni to'ldiring");
       return;
     }
     setIsSubmittingAuth(true);
@@ -504,7 +592,7 @@ function AppInner() {
       setScreen('home');
     } catch (err: any) {
       const msg = err.response?.data?.message || `${authMode === 'login' ? 'Kirishda' : "Ro'yxatdan o'tishda"} xatolik yuz berdi.`;
-      Alert.alert('Xato', Array.isArray(msg) ? msg.join('\n') : msg);
+      showAlert('Xato', Array.isArray(msg) ? msg.join('\n') : msg);
     } finally {
       setIsSubmittingAuth(false);
     }
@@ -534,7 +622,7 @@ function AppInner() {
   const handlePickAvatar = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Ruxsat kerak', "Profil rasmini o'zgartirish uchun galereyaga ruxsat bering.");
+      showAlert('Ruxsat kerak', "Profil rasmini o'zgartirish uchun galereyaga ruxsat bering.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -560,7 +648,7 @@ function AppInner() {
       });
       setCurrentUser(res.data);
     } catch (err: any) {
-      Alert.alert('Xato', err.response?.data?.message || "Rasmni yuklab bo'lmadi");
+      showAlert('Xato', err.response?.data?.message || "Rasmni yuklab bo'lmadi");
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -572,9 +660,9 @@ function AppInner() {
     try {
       const res = await getApi().patch('/auth/profile', { username: profileUsername.trim() });
       setCurrentUser(res.data);
-      Alert.alert('Saqlandi', 'Foydalanuvchi nomi yangilandi!');
+      showAlert('Saqlandi', 'Foydalanuvchi nomi yangilandi!');
     } catch (err: any) {
-      Alert.alert('Xato', err.response?.data?.message || "Foydalanuvchi nomini yangilab bo'lmadi");
+      showAlert('Xato', err.response?.data?.message || "Foydalanuvchi nomini yangilab bo'lmadi");
     } finally {
       setIsSavingUsername(false);
     }
@@ -582,7 +670,7 @@ function AppInner() {
 
   const handleChangePassword = async () => {
     if (newPasswordInput !== confirmPasswordInput) {
-      Alert.alert('Xato', 'Yangi parollar mos kelmadi');
+      showAlert('Xato', 'Yangi parollar mos kelmadi');
       return;
     }
     setIsSavingPassword(true);
@@ -591,12 +679,12 @@ function AppInner() {
         currentPassword: currentPasswordInput,
         newPassword: newPasswordInput,
       });
-      Alert.alert('Muvaffaqiyatli', "Parol muvaffaqiyatli o'zgartirildi!");
+      showAlert('Muvaffaqiyatli', "Parol muvaffaqiyatli o'zgartirildi!");
       setCurrentPasswordInput('');
       setNewPasswordInput('');
       setConfirmPasswordInput('');
     } catch (err: any) {
-      Alert.alert('Xato', err.response?.data?.message || "Parolni o'zgartirib bo'lmadi");
+      showAlert('Xato', err.response?.data?.message || "Parolni o'zgartirib bo'lmadi");
     } finally {
       setIsSavingPassword(false);
     }
@@ -607,7 +695,7 @@ function AppInner() {
     try {
       const foreground = await Location.requestForegroundPermissionsAsync();
       if (foreground.status !== 'granted') {
-        Alert.alert('Ruxsat kerak', 'Yugurishni kuzatish uchun joylashuvga ruxsat kerak.');
+        showAlert('Ruxsat kerak', 'Yugurishni kuzatish uchun joylashuvga ruxsat kerak.');
         return;
       }
 
@@ -617,7 +705,7 @@ function AppInner() {
         // sends the user into system Settings instead. Explain that up front
         // so it doesn't look like the app just crashed/kicked them out.
         await new Promise<void>((resolve) => {
-          Alert.alert(
+          showAlert(
             'Yana bir qadam',
             'Keyingi ekranda joylashuv uchun "Har doim ruxsat berish"ni tanlang, shunda ekran qulflansa ham yozib olish davom etadi. Bu Sozlamalarni ochishi mumkin — u yerda ruxsat berganingizdan so\'ng, qaytib yana Yugurishni boshlashni bosing.',
             [{ text: 'Davom etish', onPress: () => resolve() }],
@@ -666,7 +754,7 @@ function AppInner() {
       setLiveSpeedWarning(false);
       setIsRunModalVisible(true);
     } catch (err: any) {
-      Alert.alert('Xato', err.response?.data?.message || "Yugurishni boshlab bo'lmadi");
+      showAlert('Xato', err.response?.data?.message || "Yugurishni boshlab bo'lmadi");
     } finally {
       setIsStartingRun(false);
     }
@@ -686,7 +774,7 @@ function AppInner() {
       await finishTracking();
       const points = await readRunPoints();
       if (points.length < 2) {
-        Alert.alert('Juda qisqa', "Bu yugurishni saqlash uchun yetarli GPS nuqtalari yozilmadi.");
+        showAlert('Juda qisqa', "Bu yugurishni saqlash uchun yetarli GPS nuqtalari yozilmadi.");
         return;
       }
 
@@ -705,12 +793,12 @@ function AppInner() {
       setIsRunModalVisible(false);
 
       if (res.data.warning) {
-        Alert.alert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.\n\n${res.data.warning}`);
+        showAlert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.\n\n${res.data.warning}`);
       } else {
-        Alert.alert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.`);
+        showAlert('Ajoyib yugurish!', `${(res.data.distanceMeters / 1000).toFixed(2)} km yozib olindi.`);
       }
       if (res.data.banned) {
-        Alert.alert(
+        showAlert(
           "Hisob to'xtatildi",
           "Hisobingiz takroriy tezlik qoidabuzarliklari uchun to'xtatildi. Agar bu xato deb hisoblasangiz, qo'llab-quvvatlash xizmatiga murojaat qiling.",
         );
@@ -720,14 +808,14 @@ function AppInner() {
       const [, meRes] = await Promise.all([fetchHome(), getApi().get('/auth/me').catch(() => null)]);
       if (meRes) setCurrentUser(meRes.data);
     } catch (err: any) {
-      Alert.alert('Xato', err.response?.data?.message || "Yugurishni saqlab bo'lmadi");
+      showAlert('Xato', err.response?.data?.message || "Yugurishni saqlab bo'lmadi");
     } finally {
       setIsFinishingRun(false);
     }
   };
 
   const handleDiscardRun = () => {
-    Alert.alert('Yugurishni bekor qilasizmi?', 'Bu yugurish saqlanmaydi.', [
+    showAlert('Yugurishni bekor qilasizmi?', 'Bu yugurish saqlanmaydi.', [
       { text: "Yo'q", style: 'cancel' },
       {
         text: "Ha, bekor qilish",
@@ -897,11 +985,21 @@ function AppInner() {
         </View>
       )}
 
-      <View style={{ flex: 1 }}>
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={15} color={colors.warning} />
+          <Text style={styles.offlineBannerText}>Internet aloqasi yo'q — ma'lumotlar yangilanmayapti</Text>
+        </View>
+      )}
+
+      <Animated.View style={{ flex: 1, opacity: screenFade }}>
         {screen === 'home' && (
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={isLoadingHome && !!stats} onRefresh={fetchHome} tintColor={colors.accent} colors={[colors.accent]} />
+            }
           >
             {homeError && (
               <TouchableOpacity onPress={fetchHome} style={styles.inlineRetry}>
@@ -910,12 +1008,13 @@ function AppInner() {
               </TouchableOpacity>
             )}
             {isLoadingHome && !stats ? (
-              <ActivityIndicator color={colors.accent} style={{ marginTop: 40 }} />
+              <HomeSkeleton width={screenWidth} />
             ) : (
               <>
                 <PressableScale
                   onPress={() => handleStartRun()}
                   disabled={isStartingRun || currentUser.isBanned}
+                  haptic="medium"
                   style={currentUser.isBanned ? { opacity: 0.4 } : undefined}
                 >
                   <LinearGradient
@@ -944,9 +1043,55 @@ function AppInner() {
                   <StatCard icon="flame-outline" label="Ketma-ketlik" value={`${stats?.currentStreakDays ?? 0}`} unit="kun" width={screenWidth} tint="amber" />
                 </View>
 
+                <View style={styles.goalCard}>
+                  <View style={styles.goalHeaderRow}>
+                    <Text style={styles.goalTitle}>Haftalik maqsad</Text>
+                    {isEditingGoal ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TextInput
+                          value={goalInput}
+                          onChangeText={setGoalInput}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          onSubmitEditing={saveWeeklyGoal}
+                          onBlur={saveWeeklyGoal}
+                          style={styles.goalInput}
+                        />
+                        <Text style={styles.goalEditUnit}>km</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity onPress={() => setIsEditingGoal(true)} hitSlop={6}>
+                        <Text style={styles.goalEditLink}>O&apos;zgartirish</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {(() => {
+                    const weekKm = (stats?.weekDistanceM ?? 0) / 1000;
+                    const pct = Math.max(0, Math.min(100, (weekKm / weeklyGoalKm) * 100));
+                    const reached = weekKm >= weeklyGoalKm;
+                    return (
+                      <>
+                        <View style={styles.goalBarTrack}>
+                          <LinearGradient
+                            colors={reached ? [colors.accent, colors.accent] : [colors.accent, colors.accentDeep]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={[styles.goalBarFill, { width: `${pct}%` }]}
+                          />
+                        </View>
+                        <Text style={styles.goalProgressText}>
+                          {weekKm.toFixed(1)} / {weeklyGoalKm} km {reached ? '🎉' : `· ${Math.max(0, weeklyGoalKm - weekKm).toFixed(1)} km qoldi`}
+                        </Text>
+                      </>
+                    );
+                  })()}
+                </View>
+
+                <WeeklyChart runs={recentRuns} />
+
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionTitle}>So'nggi yugurishlar</Text>
-                  <TouchableOpacity onPress={() => setScreen('history')} hitSlop={6}>
+                  <TouchableOpacity onPress={() => switchScreen('history')} hitSlop={6}>
                     <Text style={styles.viewAllLink}>Barchasi</Text>
                   </TouchableOpacity>
                 </View>
@@ -959,7 +1104,7 @@ function AppInner() {
                   />
                 ) : (
                   recentRuns.map((run) => (
-                    <TouchableOpacity key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)} activeOpacity={0.7}>
+                    <PressableScale key={run.id} style={styles.runRow} onPress={() => openRunDetail(run.id)}>
                       <View style={styles.runRowIconWrap}>
                         <Ionicons name="footsteps" size={18} color={colors.accent} />
                       </View>
@@ -975,7 +1120,7 @@ function AppInner() {
                       <View style={styles.runRowPointsPill}>
                         <Text style={styles.runRowPoints}>+{run.pointsEarned}</Text>
                       </View>
-                    </TouchableOpacity>
+                    </PressableScale>
                   ))
                 )}
               </>
@@ -984,7 +1129,18 @@ function AppInner() {
         )}
 
         {screen === 'leaderboard' && (
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoadingLeaderboard && leaderboard.length > 0}
+                onRefresh={fetchLeaderboard}
+                tintColor={colors.accent}
+                colors={[colors.accent]}
+              />
+            }
+          >
             {leaderboardError && (
               <TouchableOpacity onPress={fetchLeaderboard} style={styles.inlineRetry}>
                 <Ionicons name="refresh-outline" size={14} color={colors.warning} />
@@ -1001,8 +1157,8 @@ function AppInner() {
               ]}
             />
 
-            {isLoadingLeaderboard ? (
-              <ActivityIndicator color={colors.accent} style={{ marginTop: 32 }} />
+            {isLoadingLeaderboard && leaderboard.length === 0 ? (
+              <LeaderboardSkeleton />
             ) : leaderboard.length === 0 ? (
               <EmptyState
                 icon="trophy-outline"
@@ -1072,14 +1228,20 @@ function AppInner() {
         )}
 
         {screen === 'history' && (
-          // FlatList instead of ScrollView+.map() - up to 100 rows used to
-          // all mount at once with no virtualization; FlatList only renders
-          // what's near the viewport.
-          <FlatList
+          // SectionList instead of a flat FlatList — same virtualization
+          // benefit (up to 100 rows used to all mount at once with a plain
+          // ScrollView+.map()) but grouped into month headers so a long
+          // history reads as "September / August / July…" instead of one
+          // undifferentiated scroll.
+          <SectionList
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
-            data={historyRuns}
+            sections={historySections}
             keyExtractor={(run) => run.id}
+            stickySectionHeadersEnabled={false}
+            refreshing={isLoadingHistory && historyRuns.length > 0}
+            onRefresh={fetchHistory}
+            renderSectionHeader={({ section }) => <Text style={styles.historySectionHeader}>{section.title}</Text>}
             ListHeaderComponent={
               historyError ? (
                 <TouchableOpacity onPress={fetchHistory} style={styles.inlineRetry}>
@@ -1090,13 +1252,13 @@ function AppInner() {
             }
             ListEmptyComponent={
               isLoadingHistory ? (
-                <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
+                <HistorySkeleton />
               ) : (
                 <EmptyState icon="time-outline" title="Hali yugurishlar yo'q" subtitle="Yugurishlaringiz shu yerda tarix bo'lib to'planadi." />
               )
             }
             renderItem={({ item: run }) => (
-              <TouchableOpacity style={styles.runRow} onPress={() => openRunDetail(run.id)} activeOpacity={0.7}>
+              <PressableScale style={styles.runRow} onPress={() => openRunDetail(run.id)}>
                 <View style={styles.runRowIconWrap}>
                   <Ionicons name="footsteps" size={18} color={colors.accent} />
                 </View>
@@ -1112,7 +1274,7 @@ function AppInner() {
                 <View style={styles.runRowPointsPill}>
                   <Text style={styles.runRowPoints}>+{run.pointsEarned}</Text>
                 </View>
-              </TouchableOpacity>
+              </PressableScale>
             )}
           />
         )}
@@ -1130,10 +1292,7 @@ function AppInner() {
               {PLAN_DISTANCES.map((km) => (
                 <TouchableOpacity
                   key={km}
-                  onPress={() => {
-                    setPlanTargetKm(km);
-                    setManualPlanKmInput(String(km));
-                  }}
+                  onPress={() => setPlanTargetKm(km)}
                   style={[styles.planDistanceChip, planTargetKm === km && styles.planDistanceChipActive]}
                 >
                   <Text style={[styles.planDistanceChipText, planTargetKm === km && styles.planDistanceChipTextActive]}>
@@ -1141,20 +1300,27 @@ function AppInner() {
                   </Text>
                 </TouchableOpacity>
               ))}
-              <View style={styles.planManualKmWrapper}>
-                <TextInput
-                  value={manualPlanKmInput}
-                  onChangeText={(text) => {
-                    setManualPlanKmInput(text);
-                    const parsed = parseFloat(text);
-                    if (!Number.isNaN(parsed) && parsed >= 0.5 && parsed <= 42) {
-                      setPlanTargetKm(parsed);
-                    }
-                  }}
-                  keyboardType="decimal-pad"
-                  style={styles.planManualKmInput}
-                />
-                <Text style={styles.planManualKmLabel}>km</Text>
+              {/* +/- stepper instead of a bare numeric keyboard TextInput -
+                  a full km distance is almost always chosen in half-km
+                  increments anyway, and tapping is faster than typing here. */}
+              <View style={styles.planStepperWrapper}>
+                <PressableScale
+                  onPress={() => setPlanTargetKm((v) => Math.max(0.5, Math.round((v - 0.5) * 2) / 2))}
+                  scaleTo={0.85}
+                  haptic={false}
+                  style={styles.planStepperButton}
+                >
+                  <Ionicons name="remove" size={16} color={colors.text} />
+                </PressableScale>
+                <Text style={styles.planStepperValue}>{planTargetKm} km</Text>
+                <PressableScale
+                  onPress={() => setPlanTargetKm((v) => Math.min(42, Math.round((v + 0.5) * 2) / 2))}
+                  scaleTo={0.85}
+                  haptic={false}
+                  style={styles.planStepperButton}
+                >
+                  <Ionicons name="add" size={16} color={colors.text} />
+                </PressableScale>
               </View>
             </View>
 
@@ -1217,6 +1383,24 @@ function AppInner() {
               <Text style={styles.profileHint}>O'zgartirish uchun rasmingizga bosing</Text>
             </View>
 
+            {!!stats && (
+              <View style={styles.profileCard}>
+                <Text style={styles.profileSectionTitle}>Rekordlar</Text>
+                <View style={styles.recordsRow}>
+                  <View style={styles.recordItem}>
+                    <Ionicons name="flash" size={18} color={colors.amber} />
+                    <Text style={styles.recordValue}>{stats.bestMaxSpeedKmh}</Text>
+                    <Text style={styles.recordLabel}>Rekord tezlik, km/h</Text>
+                  </View>
+                  <View style={styles.recordItem}>
+                    <Ionicons name="flame" size={18} color={colors.amber} />
+                    <Text style={styles.recordValue}>{stats.longestStreakDays}</Text>
+                    <Text style={styles.recordLabel}>Eng uzun ketma-ketlik, kun</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             <View style={styles.profileCard}>
               <Text style={styles.profileSectionTitle}>Foydalanuvchi nomi</Text>
               <View style={styles.inputWrapper}>
@@ -1227,6 +1411,10 @@ function AppInner() {
                   placeholderTextColor={colors.textFaint}
                   style={styles.textInput}
                   autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    if (!isSavingUsername && profileUsername.trim() && profileUsername !== currentUser.username) handleSaveUsername();
+                  }}
                 />
               </View>
               {(() => {
@@ -1262,11 +1450,15 @@ function AppInner() {
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
+                  returnKeyType="next"
+                  onSubmitEditing={() => newPasswordRef.current?.focus()}
+                  blurOnSubmit={false}
                 />
               </View>
               <View style={[styles.inputWrapper, { marginBottom: 12 }]}>
                 <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
+                  ref={newPasswordRef}
                   value={newPasswordInput}
                   onChangeText={setNewPasswordInput}
                   placeholder="Yangi parol"
@@ -1274,11 +1466,15 @@ function AppInner() {
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
+                  returnKeyType="next"
+                  onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                  blurOnSubmit={false}
                 />
               </View>
               <View style={styles.inputWrapper}>
                 <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} style={styles.inputIcon} />
                 <TextInput
+                  ref={confirmPasswordRef}
                   value={confirmPasswordInput}
                   onChangeText={setConfirmPasswordInput}
                   placeholder="Yangi parolni tasdiqlang"
@@ -1286,6 +1482,10 @@ function AppInner() {
                   style={styles.textInput}
                   secureTextEntry
                   autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    if (!isSavingPassword && currentPasswordInput && newPasswordInput && confirmPasswordInput) handleChangePassword();
+                  }}
                 />
               </View>
               {(() => {
@@ -1308,9 +1508,11 @@ function AppInner() {
                 );
               })()}
             </View>
+
+            <Text style={styles.footerText}>RunApp v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
           </ScrollView>
         )}
-      </View>
+      </Animated.View>
 
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         {(
@@ -1324,7 +1526,7 @@ function AppInner() {
         ).map((tab) => {
           const isActive = screen === tab.key;
           return (
-            <TouchableOpacity key={tab.key} onPress={() => setScreen(tab.key)} style={styles.tabItem} activeOpacity={0.7}>
+            <TouchableOpacity key={tab.key} onPress={() => switchScreen(tab.key)} style={styles.tabItem} activeOpacity={0.7}>
               <View style={[styles.tabIconWrap, isActive && styles.tabIconWrapActive]}>
                 <Ionicons name={(isActive ? tab.icon : `${tab.icon}-outline`) as any} size={19} color={isActive ? colors.onAccent : colors.textDim} />
               </View>
@@ -1397,11 +1599,11 @@ function AppInner() {
                   </BlurView>
 
                   <View style={styles.runModalActions}>
-                    <PressableScale onPress={handleDiscardRun} disabled={isFinishingRun} style={styles.runModalDiscardButton}>
+                    <PressableScale onPress={handleDiscardRun} disabled={isFinishingRun} haptic="medium" style={styles.runModalDiscardButton}>
                       <Ionicons name="trash-outline" size={20} color={colors.danger} />
                       <Text style={styles.runModalDiscardText}>Bekor qilish</Text>
                     </PressableScale>
-                    <PressableScale onPress={handleStopRun} disabled={isFinishingRun} style={{ flex: 1 }}>
+                    <PressableScale onPress={handleStopRun} disabled={isFinishingRun} haptic="medium" style={{ flex: 1 }}>
                       <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.runModalStopButton}>
                         {isFinishingRun ? <ActivityIndicator color={colors.onAccent} /> : (
                           <>
@@ -1428,6 +1630,19 @@ function AppInner() {
               <Ionicons name="chevron-down" size={26} color={colors.textDim} />
             </TouchableOpacity>
             <Text style={styles.runModalLiveTextNeutral}>YUGURISH TAFSILOTI</Text>
+            {!!selectedRun && (
+              <TouchableOpacity
+                onPress={() => {
+                  Share.share({
+                    message: `Men ${formatKm(selectedRun.distanceMeters)} km yugurdim, ${Math.round(selectedRun.durationSec / 60)} daqiqada (${selectedRun.avgSpeedKmh} km/h o'rtacha tezlik) va ${selectedRun.pointsEarned} ball to'pladim! 🏃 RunApp orqali.`,
+                  }).catch(() => {});
+                }}
+                style={{ position: 'absolute', right: 0 }}
+                hitSlop={10}
+              >
+                <Ionicons name="share-outline" size={22} color={colors.textDim} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {isLoadingRunDetail || !selectedRun ? (
@@ -1543,10 +1758,94 @@ const StatCard = React.memo(function StatCard({
   );
 });
 
+// Last-7-days distance bars built entirely client-side from the runs Home
+// already fetched (`/runs/me?limit=6`) — no backend endpoint for this
+// exists, and none is needed for a lightweight glance at the week's shape.
+// Caveat: if more than 6 runs happened in the window this undercounts,
+// since only the 6 most recent are ever in memory - acceptable for a quick
+// visual, not a source of truth (the real weekly total still comes from
+// `stats.weekDistanceM` above).
+const WeeklyChart = React.memo(function WeeklyChart({ runs }: { runs: Run[] }) {
+  const days = React.useMemo(() => {
+    const today = new Date();
+    const out: { label: string; km: number; isToday: boolean }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const km = runs.filter((r) => new Date(r.startedAt).toDateString() === d.toDateString()).reduce((sum, r) => sum + r.distanceMeters, 0) / 1000;
+      out.push({ label: d.toLocaleDateString(undefined, { weekday: 'narrow' }), km, isToday: i === 0 });
+    }
+    return out;
+  }, [runs]);
+  const maxKm = Math.max(1, ...days.map((d) => d.km));
+
+  return (
+    <View style={styles.weeklyChartCard}>
+      <Text style={styles.weeklyChartTitle}>So&apos;nggi 7 kun</Text>
+      <View style={styles.weeklyChartRow}>
+        {days.map((d, idx) => (
+          <View key={idx} style={styles.weeklyChartColumn}>
+            <View style={styles.weeklyChartTrack}>
+              {d.km > 0 && (
+                <View style={[styles.weeklyChartBar, d.isToday && styles.weeklyChartBarToday, { height: `${Math.max(8, (d.km / maxKm) * 100)}%` }]} />
+              )}
+            </View>
+            <Text style={[styles.weeklyChartLabel, d.isToday && styles.weeklyChartLabelToday]}>{d.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+});
+
+function HomeSkeleton({ width }: { width: number }) {
+  const cardWidth = (Math.min(width, 600) - space.xl * 2 - space.md) / 2;
+  return (
+    <View>
+      <SkeletonBlock height={56} radius={radius.lg} style={{ marginBottom: space.xl }} />
+      <View style={styles.statsGrid}>
+        {[0, 1, 2, 3].map((i) => (
+          <SkeletonBlock key={i} width={cardWidth} height={92} radius={radius.lg} style={{ marginBottom: space.md }} />
+        ))}
+      </View>
+      <SkeletonBlock height={92} radius={radius.lg} style={{ marginTop: space.md, marginBottom: space.xl }} />
+      {[0, 1, 2].map((i) => (
+        <SkeletonBlock key={i} height={64} radius={radius.lg} style={{ marginBottom: space.sm }} />
+      ))}
+    </View>
+  );
+}
+
+function LeaderboardSkeleton() {
+  return (
+    <View style={{ marginTop: space.xl }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: space.md, marginBottom: space.xl }}>
+        <SkeletonBlock width={70} height={110} radius={radius.lg} />
+        <SkeletonBlock width={70} height={130} radius={radius.lg} />
+        <SkeletonBlock width={70} height={100} radius={radius.lg} />
+      </View>
+      {[0, 1, 2, 3].map((i) => (
+        <SkeletonBlock key={i} height={60} radius={radius.lg} style={{ marginBottom: space.sm }} />
+      ))}
+    </View>
+  );
+}
+
+function HistorySkeleton() {
+  return (
+    <View style={{ marginTop: space.md }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <SkeletonBlock key={i} height={64} radius={radius.lg} style={{ marginBottom: space.sm }} />
+      ))}
+    </View>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <AppInner />
+      <AppAlertHost />
     </SafeAreaProvider>
   );
 }
@@ -1900,19 +2199,90 @@ const styles = StyleSheet.create({
   planDistanceChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   planDistanceChipText: { color: colors.textDim, fontSize: 13, fontFamily: font.bodyBold },
   planDistanceChipTextActive: { color: colors.onAccent },
-  planManualKmWrapper: {
+  planStepperWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: space.sm,
     backgroundColor: colors.bg1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.sm,
     paddingVertical: space.sm,
   },
-  planManualKmInput: { color: colors.text, fontFamily: font.bodyBold, fontSize: 14, minWidth: 32, padding: 0 },
-  planManualKmLabel: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyMedium },
+  planStepperButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.bg2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planStepperValue: { color: colors.text, fontFamily: font.bodyBold, fontSize: 13.5, minWidth: 48, textAlign: 'center' },
   planError: { color: colors.danger, fontSize: 12, textAlign: 'center', marginTop: space.md, fontFamily: font.bodyMedium },
   planHint: { color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: space.md, lineHeight: 16, fontFamily: font.bodyMedium },
+  goalCard: {
+    backgroundColor: colors.bg1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: space.lg,
+    marginTop: space.lg,
+  },
+  goalHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.md },
+  goalTitle: { color: colors.text, fontSize: 14, fontFamily: font.bodyBold },
+  goalEditLink: { color: colors.accent, fontSize: 12, fontFamily: font.bodyBold },
+  goalInput: {
+    color: colors.text,
+    fontFamily: font.bodyBold,
+    fontSize: 14,
+    minWidth: 36,
+    padding: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.accent,
+  },
+  goalEditUnit: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyMedium },
+  goalBarTrack: { height: 10, borderRadius: 5, backgroundColor: colors.bg2, overflow: 'hidden' },
+  goalBarFill: { height: '100%', borderRadius: 5 },
+  goalProgressText: { color: colors.textDim, fontSize: 12, fontFamily: font.bodyMedium, marginTop: space.sm },
+  weeklyChartCard: {
+    backgroundColor: colors.bg1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: space.lg,
+    marginTop: space.lg,
+    marginBottom: space.xl,
+  },
+  weeklyChartTitle: { color: colors.text, fontSize: 14, fontFamily: font.bodyBold, marginBottom: space.lg },
+  weeklyChartRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 84 },
+  weeklyChartColumn: { flex: 1, alignItems: 'center', gap: space.xs },
+  weeklyChartTrack: { width: 18, flex: 1, borderRadius: 9, backgroundColor: colors.bg2, justifyContent: 'flex-end', overflow: 'hidden' },
+  weeklyChartBar: { width: '100%', borderRadius: 9, backgroundColor: colors.accent },
+  weeklyChartBarToday: { backgroundColor: colors.amber },
+  weeklyChartLabel: { color: colors.textFaint, fontSize: 10, fontFamily: font.bodyMedium },
+  weeklyChartLabelToday: { color: colors.text, fontFamily: font.bodyBold },
+  historySectionHeader: {
+    color: colors.textDim,
+    fontSize: 12,
+    fontFamily: font.bodyExtraBold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: space.lg,
+    marginBottom: space.sm,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.sm,
+    backgroundColor: colors.warningSoft,
+  },
+  offlineBannerText: { color: colors.warning, fontSize: 11.5, flex: 1, fontFamily: font.bodyMedium },
+  recordsRow: { flexDirection: 'row', gap: space.md },
+  recordItem: { flex: 1, alignItems: 'center', backgroundColor: colors.bg2, borderRadius: radius.md, paddingVertical: space.lg, gap: space.xs },
+  recordValue: { color: colors.text, fontSize: 18, fontFamily: font.displaySemi, lineHeight: 22 },
+  recordLabel: { color: colors.textDim, fontSize: 11, fontFamily: font.bodyMedium },
+  footerText: { color: colors.textFaint, fontSize: 11.5, textAlign: 'center', marginTop: space.xl, marginBottom: space.md, fontFamily: font.bodyMedium },
 });

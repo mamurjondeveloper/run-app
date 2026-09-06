@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { colors, font, radius } from '../theme';
 
 interface SegmentedControlProps<T extends string> {
@@ -26,6 +27,8 @@ export default function SegmentedControl<T extends string>({ options, value, onC
   };
 
   const select = (idx: number) => {
+    if (options[idx].value === value) return;
+    Haptics.selectionAsync().catch(() => {});
     Animated.spring(translateX, {
       toValue: idx * segmentWidth,
       useNativeDriver: true,
