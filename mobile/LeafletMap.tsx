@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { LEAFLET_JS, LEAFLET_CSS } from './leafletAssets';
+import { OFFLINE_TILE_LAYER_JS } from './offlineTileLayer';
 import { colors } from './theme';
 
 export interface MapPoint {
@@ -15,6 +16,8 @@ interface LeafletMapProps {
   color?: string;
   /** Optional second route (e.g. the originally planned route) drawn as a dashed grey line under the main path. */
   secondaryPath?: MapPoint[];
+  /** file:// directory of previously-downloaded tiles (see offlineMap.ts) - when set, the map prefers these over the network for any tile that was cached. */
+  offlineTileDir?: string;
 }
 
 function median(values: number[]): number {
@@ -57,11 +60,13 @@ function dropGpsOutliers(points: MapPoint[]): MapPoint[] {
 // unpkg.com at runtime: with a CDN <script src>, no internet reachability
 // to that CDN meant `L` was never defined and the map area rendered
 // completely blank with no error - confirmed on-device, not just
-// theoretical. Only the OSM tile imagery itself still needs a network
-// connection (no offline tile cache); without it the polyline/markers/
-// controls still render correctly over blank/grey tiles instead of the
-// whole map disappearing.
-export default function LeafletMap({ path, height = 260, color = colors.accent, secondaryPath }: LeafletMapProps) {
+// theoretical. The OSM tile imagery itself normally still needs a network
+// connection; if the area was downloaded ahead of time (see offlineMap.ts,
+// wired in via `offlineTileDir`) it's served from disk instead, and for
+// anywhere that wasn't downloaded, the polyline/markers/controls still
+// render correctly over blank/grey tiles instead of the whole map
+// disappearing.
+export default function LeafletMap({ path, height = 260, color = colors.accent, secondaryPath, offlineTileDir }: LeafletMapProps) {
   const html = useMemo(() => {
     if (path.length === 0) return '';
     const cleanPath = dropGpsOutliers(path);
@@ -80,11 +85,12 @@ export default function LeafletMap({ path, height = 260, color = colors.accent, 
 <body>
   <div id="map"></div>
   <script>${LEAFLET_JS}</script>
+  <script>${OFFLINE_TILE_LAYER_JS}</script>
   <script>
     const coords = ${JSON.stringify(coords)};
     const secondaryCoords = ${JSON.stringify(secondaryCoords)};
     const map = L.map('map', { zoomControl: false, attributionControl: false }).setView(${JSON.stringify(center)}, 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    makeTileLayer(${JSON.stringify(offlineTileDir || null)}).addTo(map);
     if (secondaryCoords) {
       L.polyline(secondaryCoords, { color: '${colors.textDim}', weight: 3, dashArray: '6 8' }).addTo(map);
     }
@@ -95,7 +101,7 @@ export default function LeafletMap({ path, height = 260, color = colors.accent, 
   </script>
 </body>
 </html>`;
-  }, [path, color, secondaryPath]);
+  }, [path, color, secondaryPath, offlineTileDir]);
 
   if (path.length === 0) return null;
 

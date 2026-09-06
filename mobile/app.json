@@ -52,6 +52,7 @@
       "./plugins/withPictureInPicture.js",
       "expo-image",
       "expo-font",
+      "expo-file-system",
       [
         "expo-splash-screen",
         {

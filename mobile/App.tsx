@@ -54,6 +54,15 @@ import {
   RunStats,
 } from './locationTask';
 import { enqueuePendingRun, isLocalRunId, makeLocalRunId, syncPendingRuns } from './offlineSync';
+import {
+  OfflineMapMeta,
+  downloadAreaTiles,
+  deleteOfflineMap,
+  estimateTileCount,
+  getLocalTileBaseDir,
+  getOfflineMapMeta,
+  DEFAULT_RADIUS_KM as OFFLINE_MAP_RADIUS_KM,
+} from './offlineMap';
 import LeafletMap from './LeafletMap';
 import LiveLeafletMap, { LiveLeafletMapHandle } from './LiveLeafletMap';
 import {
@@ -291,6 +300,57 @@ function AppInner() {
   const leaderboardAbortRef = useRef<AbortController | null>(null);
 
   const [isOffline, setIsOffline] = useState(false);
+  const [offlineMapMeta, setOfflineMapMeta] = useState<OfflineMapMeta | null>(null);
+  const [isDownloadingMap, setIsDownloadingMap] = useState(false);
+  const [mapDownloadProgress, setMapDownloadProgress] = useState({ done: 0, total: 0 });
+  const offlineTileDir = offlineMapMeta ? getLocalTileBaseDir() : undefined;
+
+  useEffect(() => {
+    getOfflineMapMeta().then(setOfflineMapMeta);
+  }, []);
+
+  const handleDownloadOfflineMap = async () => {
+    const foreground = await Location.requestForegroundPermissionsAsync();
+    if (foreground.status !== 'granted') {
+      showAlert('Ruxsat kerak', 'Xaritani yuklab olish uchun joylashuvga ruxsat kerak.');
+      return;
+    }
+    setIsDownloadingMap(true);
+    setMapDownloadProgress({ done: 0, total: 0 });
+    try {
+      // Matches the accuracy already proven to get a fix during live run
+      // tracking - a plain Balanced-accuracy request came back "current
+      // location is unavailable" on a fresh provider with nothing cached
+      // yet. If a fresh fix still can't be had, falling back to the last
+      // known one is still a reasonable center for "download my area."
+      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation }).catch(() => null);
+      if (!loc) loc = await Location.getLastKnownPositionAsync();
+      if (!loc) throw new Error('No location fix available');
+      const meta = await downloadAreaTiles(loc.coords.latitude, loc.coords.longitude, (done, total) =>
+        setMapDownloadProgress({ done, total }),
+      );
+      setOfflineMapMeta(meta);
+    } catch (err: any) {
+      showAlert('Xato', err.response?.data?.message || "Xaritani yuklab bo'lmadi. Joylashuv va internetni tekshiring.");
+    } finally {
+      setIsDownloadingMap(false);
+    }
+  };
+
+  const handleDeleteOfflineMap = () => {
+    showAlert('Oflayn xaritani o‘chirasizmi?', 'Qurilmada saqlangan xarita fayllari o‘chiriladi.', [
+      { text: "Yo'q", style: 'cancel' },
+      {
+        text: "Ha, o'chirish",
+        style: 'destructive',
+        onPress: async () => {
+          await deleteOfflineMap();
+          setOfflineMapMeta(null);
+        },
+      },
+    ]);
+  };
+
   const screenFade = useRef(new Animated.Value(1)).current;
 
   const authLogoAnim = useRef(new Animated.Value(0)).current;
@@ -1529,7 +1589,7 @@ function AppInner() {
 
             {suggestedRoute && (
               <View style={{ marginTop: space.xl }}>
-                <LeafletMap path={suggestedRoute.path} height={280} />
+                <LeafletMap path={suggestedRoute.path} height={280} offlineTileDir={offlineTileDir} />
                 <View style={styles.statsGrid}>
                   <StatCard icon="footsteps-outline" label="Yo'nalish masofasi" value={(suggestedRoute.distanceMeters / 1000).toFixed(2)} unit="km" width={screenWidth} />
                   <StatCard icon="time-outline" label="Taxminiy yurish vaqti" value={`~${Math.round(suggestedRoute.durationSec / 60)}`} unit="daq" width={screenWidth} tint="amber" />
@@ -1694,6 +1754,57 @@ function AppInner() {
               })()}
             </View>
 
+            <View style={styles.profileCard}>
+              <Text style={styles.profileSectionTitle}>Oflayn xarita</Text>
+              {isDownloadingMap ? (
+                <>
+                  <Text style={styles.offlineMapHint}>
+                    Yuklanmoqda… {mapDownloadProgress.total > 0 ? `${mapDownloadProgress.done}/${mapDownloadProgress.total}` : ''}
+                  </Text>
+                  <View style={styles.goalBarTrack}>
+                    <LinearGradient
+                      colors={[colors.accent, colors.accentDeep]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={[
+                        styles.goalBarFill,
+                        { width: `${mapDownloadProgress.total > 0 ? (mapDownloadProgress.done / mapDownloadProgress.total) * 100 : 0}%` },
+                      ]}
+                    />
+                  </View>
+                </>
+              ) : offlineMapMeta ? (
+                <>
+                  <Text style={styles.offlineMapHint}>
+                    Yuklab olingan: {new Date(offlineMapMeta.savedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, joylashuv atrofida {offlineMapMeta.radiusKm} km, {offlineMapMeta.tileCount} ta plitka.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.md }}>
+                    <PressableScale onPress={handleDownloadOfflineMap} style={{ flex: 1 }}>
+                      <View style={[styles.primaryButton, styles.primaryButtonDisabled]}>
+                        <Text style={styles.primaryButtonText}>Yangilash</Text>
+                      </View>
+                    </PressableScale>
+                    <PressableScale onPress={handleDeleteOfflineMap} style={{ flex: 1 }}>
+                      <View style={[styles.primaryButton, styles.offlineMapDeleteButton]}>
+                        <Text style={[styles.primaryButtonText, { color: colors.danger }]}>O'chirish</Text>
+                      </View>
+                    </PressableScale>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.offlineMapHint}>
+                    Joriy joylashuvingiz atrofidagi ~{OFFLINE_MAP_RADIUS_KM} km radiusdagi xarita tasvirlarini qurilmaga yuklab oling (taxminan {estimateTileCount(41)} ta rasm) — internet bo'lmagan joyda ham yugurish xaritasi ko'rinib turadi (faqat siz yugurgan yo'l chizig'i emas, xaritaning o'zi).
+                  </Text>
+                  <PressableScale onPress={handleDownloadOfflineMap} style={{ marginTop: space.md }}>
+                    <LinearGradient colors={[colors.accent, colors.accentDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                      <Text style={styles.primaryButtonText}>Joriy hududni yuklab olish</Text>
+                    </LinearGradient>
+                  </PressableScale>
+                </>
+              )}
+            </View>
+
             <Text style={styles.footerText}>RunApp v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
           </ScrollView>
         )}
@@ -1740,6 +1851,7 @@ function AppInner() {
                     initialCenter={mapCenter}
                     secondaryPath={activePlannedRoute?.path}
                     avatarUrl={avatarUrl}
+                    offlineTileDir={offlineTileDir}
                   />
                 ) : (
                   <View style={styles.liveMapPlaceholder}>
@@ -1859,7 +1971,7 @@ function AppInner() {
 
               {selectedRun.path.length > 1 ? (
                 <View style={{ marginTop: 16 }}>
-                  <LeafletMap path={selectedRun.path} secondaryPath={selectedRun.plannedRoutePath ?? undefined} height={280} />
+                  <LeafletMap path={selectedRun.path} secondaryPath={selectedRun.plannedRoutePath ?? undefined} height={280} offlineTileDir={offlineTileDir} />
                   {!!selectedRun.plannedRoutePath?.length && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 10 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -2490,4 +2602,6 @@ const styles = StyleSheet.create({
   recordValue: { color: colors.text, fontSize: 18, fontFamily: font.displaySemi, lineHeight: 22 },
   recordLabel: { color: colors.textDim, fontSize: 11, fontFamily: font.bodyMedium },
   footerText: { color: colors.textFaint, fontSize: 11.5, textAlign: 'center', marginTop: space.xl, marginBottom: space.md, fontFamily: font.bodyMedium },
+  offlineMapHint: { color: colors.textDim, fontSize: 12.5, fontFamily: font.bodyMedium, lineHeight: 18 },
+  offlineMapDeleteButton: { backgroundColor: colors.dangerSoft },
 });

@@ -2,6 +2,7 @@ import React, { forwardRef, useImperativeHandle, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { LEAFLET_JS, LEAFLET_CSS } from './leafletAssets';
+import { OFFLINE_TILE_LAYER_JS } from './offlineTileLayer';
 import { colors } from './theme';
 
 export interface MapPoint {
@@ -14,6 +15,8 @@ interface LiveLeafletMapProps {
   secondaryPath?: MapPoint[];
   color?: string;
   avatarUrl?: string | null;
+  /** file:// directory of previously-downloaded tiles (see offlineMap.ts) - when set, the map prefers these over the network for any tile that was cached. */
+  offlineTileDir?: string;
 }
 
 export interface LiveLeafletMapHandle {
@@ -30,7 +33,7 @@ export interface LiveLeafletMapHandle {
 // JS/CSS are inlined from leafletAssets.ts rather than loaded from
 // unpkg.com - see the comment in LeafletMap.tsx for why.
 const LiveLeafletMap = forwardRef<LiveLeafletMapHandle, LiveLeafletMapProps>(
-  ({ initialCenter, secondaryPath, color = colors.accent, avatarUrl }, ref) => {
+  ({ initialCenter, secondaryPath, color = colors.accent, avatarUrl, offlineTileDir }, ref) => {
     const webViewRef = useRef<WebView>(null);
 
     useImperativeHandle(ref, () => ({
@@ -56,11 +59,12 @@ const LiveLeafletMap = forwardRef<LiveLeafletMapHandle, LiveLeafletMapProps>(
 <body>
   <div id="map"></div>
   <script>${LEAFLET_JS}</script>
+  <script>${OFFLINE_TILE_LAYER_JS}</script>
   <script>
     const secondaryCoords = ${JSON.stringify(secondaryCoords)};
     const map = L.map('map', { zoomControl: false, attributionControl: false })
       .setView(${JSON.stringify([initialCenter.lat, initialCenter.lng])}, 16);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    makeTileLayer(${JSON.stringify(offlineTileDir || null)}).addTo(map);
     if (secondaryCoords) {
       L.polyline(secondaryCoords, { color: '${colors.textDim}', weight: 3, dashArray: '6 8' }).addTo(map);
     }
@@ -113,7 +117,7 @@ const LiveLeafletMap = forwardRef<LiveLeafletMapHandle, LiveLeafletMapProps>(
 </body>
 </html>`;
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [secondaryPath, color, avatarUrl, initialCenter.lat, initialCenter.lng]);
+    }, [secondaryPath, color, avatarUrl, offlineTileDir, initialCenter.lat, initialCenter.lng]);
 
     return (
       <View style={StyleSheet.absoluteFill}>
