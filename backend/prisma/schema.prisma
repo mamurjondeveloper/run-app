@@ -42,10 +42,19 @@ model Run {
   elevationGainM Float     @default(0)
   createdAt      DateTime  @default(now())
 
+  // Live "who's running right now" support (GET /runs/live) - the client
+  // pings its current position every ~25s while a run is in_progress
+  // (PATCH /runs/:id/ping). Deliberately just the latest point, not a
+  // history - the full path is still only persisted once, at finish.
+  lastLat        Float?
+  lastLng        Float?
+  lastPingAt     DateTime?
+
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, startedAt])
   @@index([status, startedAt])
+  @@index([status, lastPingAt])
 }
 
 // Denormalized per-user totals, updated whenever a run completes.

@@ -7,7 +7,13 @@ import {
 import { PrismaService } from '../prisma.service';
 import { FinishRunDto, RunPointDto } from './dto/finish-run.dto';
 import { StartRunDto } from './dto/start-run.dto';
+import { PingRunDto } from './dto/ping-run.dto';
 import { AuthService } from '../auth/auth.service';
+
+// A run counts as "live" for GET /runs/live only if it pinged recently - an
+// app that crashed or was force-closed mid-run without ever calling
+// finish/discard would otherwise show that user as "running" forever.
+const LIVE_RUN_WINDOW_MS = 3 * 60 * 1000;
 
 // Faster than this is not running — a bus, metro, or car. Segments implying a
 // speed above this are excluded from the distance/points calculation instead
@@ -321,6 +327,62 @@ export class RunsService {
       where: { id: runId },
       data: { status: 'discarded', endedAt: new Date() },
     });
+  }
+
+  async pingRun(userId: string, runId: string, dto: PingRunDto) {
+    const run = await this.prisma.run.findUnique({
+      where: { id: runId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!run) {
+      throw new NotFoundException('Yugurish topilmadi');
+    }
+    if (run.userId !== userId) {
+      throw new ForbiddenException('Bu yugurish sizga tegishli emas');
+    }
+    // A ping arriving for a run that's already finished/discarded (a
+    // delayed retry, e.g.) is harmless to ignore - it just means this run
+    // won't show as "live" anymore, which is correct.
+    if (run.status !== 'in_progress') {
+      return { ok: false };
+    }
+    await this.prisma.run.update({
+      where: { id: runId },
+      data: { lastLat: dto.lat, lastLng: dto.lng, lastPingAt: new Date() },
+    });
+    return { ok: true };
+  }
+
+  async getLiveRuns(userId: string) {
+    const since = new Date(Date.now() - LIVE_RUN_WINDOW_MS);
+    const runs = await this.prisma.run.findMany({
+      where: {
+        status: 'in_progress',
+        userId: { not: userId },
+        lastPingAt: { gte: since },
+        user: { isBanned: false },
+      },
+      orderBy: { lastPingAt: 'desc' },
+      take: 100,
+      select: {
+        userId: true,
+        startedAt: true,
+        lastLat: true,
+        lastLng: true,
+        lastPingAt: true,
+        user: { select: { username: true, avatarUrl: true } },
+      },
+    });
+
+    const runners = runs.map((r) => ({
+      userId: r.userId,
+      username: r.user.username,
+      avatarUrl: r.user.avatarUrl,
+      lat: r.lastLat,
+      lng: r.lastLng,
+      startedAt: r.startedAt,
+    }));
+    return { count: runners.length, runners };
   }
 
   async getMyRuns(userId: string, limit = 20) {

@@ -173,6 +173,15 @@ interface LeaderboardEntry {
   points: number;
 }
 
+interface LiveRunner {
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+  lat: number;
+  lng: number;
+  startedAt: string;
+}
+
 type Period = 'daily' | 'weekly' | 'alltime';
 type Screen = 'home' | 'leaderboard' | 'history' | 'plan' | 'profile';
 
@@ -254,6 +263,9 @@ function AppInner() {
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [isLoadingHome, setIsLoadingHome] = useState(false);
   const [homeError, setHomeError] = useState(false);
+  const [liveRunners, setLiveRunners] = useState<LiveRunner[]>([]);
+  const liveRunnersIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPingSentAtRef = useRef(0);
 
   const [period, setPeriod] = useState<Period>('daily');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -502,6 +514,29 @@ function AppInner() {
         const elapsedSec = runStartedAt ? Math.max(0, Math.floor((now - runStartedAt) / 1000)) : 0;
         updateRunNotification(liveStats.distanceMeters, elapsedSec, liveStats.avgSpeedKmh || 0);
       }
+
+      // Lets other users' "X kishi hozir yugurmoqda" card (Home screen) show
+      // this run - see PATCH /runs/:id/ping on the backend. Throttled to
+      // ~25s (this poll runs every 2s for the local stats above, which is
+      // far more often than a presence ping needs) and skipped outright
+      // while offline or before this run ever reached the server (a
+      // locally-queued run - see offlineSync.ts - has no server id to ping).
+      if (
+        activeRunId &&
+        !isLocalRunId(activeRunId) &&
+        !isOfflineRef.current &&
+        points.length > 0 &&
+        now - lastPingSentAtRef.current > 25000
+      ) {
+        lastPingSentAtRef.current = now;
+        const last = points[points.length - 1];
+        getApi()
+          .patch(`/runs/${activeRunId}/ping`, { lat: last.lat, lng: last.lng })
+          .catch(() => {
+            // Best-effort - a missed ping just means this run briefly drops
+            // off other users' live list, which self-heals on the next one.
+          });
+      }
     };
     poll();
     pollRef.current = setInterval(poll, 2000);
@@ -533,6 +568,33 @@ function AppInner() {
   useEffect(() => {
     if (token && screen === 'home') fetchHome();
   }, [token, screen, fetchHome]);
+
+  // "X kishi hozir yugurmoqda" card on Home - who else has a run in
+  // progress right now (see PATCH /runs/:id/ping below for how a run gets
+  // onto this list, and GET /runs/live on the backend). Silent on failure -
+  // this is a nice-to-have social readout, not something worth an error
+  // banner over; an empty/stale list just means the card shows nothing new.
+  const fetchLiveRunners = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await getApi().get('/runs/live');
+      setLiveRunners(res.data.runners);
+    } catch {
+      // deliberately silent - see comment above
+    }
+  }, [token, getApi]);
+
+  useEffect(() => {
+    if (!(token && screen === 'home' && !isOffline)) {
+      if (liveRunnersIntervalRef.current) clearInterval(liveRunnersIntervalRef.current);
+      return;
+    }
+    fetchLiveRunners();
+    liveRunnersIntervalRef.current = setInterval(fetchLiveRunners, 20000);
+    return () => {
+      if (liveRunnersIntervalRef.current) clearInterval(liveRunnersIntervalRef.current);
+    };
+  }, [token, screen, isOffline, fetchLiveRunners]);
 
   // Profile's "Rekordlar" card reads from the same `stats` the Home tab
   // fetches - load it here too in case Profile is opened first (e.g. right
@@ -570,9 +632,15 @@ function AppInner() {
   }, [token]);
 
   const prevOfflineRef = useRef(isOffline);
+  // A plain ref (not just state) so the live-run ping loop below - a
+  // setInterval closure created once per run, not re-created on every
+  // connectivity change - can always check the CURRENT online state instead
+  // of whatever it was when the run started.
+  const isOfflineRef = useRef(isOffline);
   useEffect(() => {
     if (prevOfflineRef.current && !isOffline) syncOfflineRuns();
     prevOfflineRef.current = isOffline;
+    isOfflineRef.current = isOffline;
   }, [isOffline, syncOfflineRuns]);
 
   const fetchLeaderboard = useCallback(async () => {
@@ -1170,11 +1238,13 @@ function AppInner() {
 
       <View style={styles.header}>
         {screen === 'home' ? (
-          <View>
+          <View style={styles.headerHomeTextWrap}>
             <Text style={styles.headerGreeting}>
               {greeting()} {greetingSticker()}
             </Text>
-            <Text style={styles.headerTitle}>{currentUser.username}</Text>
+            <Text style={styles.headerUsername} numberOfLines={1}>
+              {currentUser.username}
+            </Text>
           </View>
         ) : (
           <Text style={styles.headerTitle}>
@@ -1284,6 +1354,29 @@ function AppInner() {
                     tint="amber"
                   />
                 </View>
+
+                {liveRunners.length > 0 && (
+                  <View style={styles.liveRunnersCard}>
+                    <View style={styles.liveRunnersHeaderRow}>
+                      <View style={styles.liveDot} />
+                      <Text style={styles.liveRunnersTitle}>
+                        {liveRunners.length === 1
+                          ? 'Hozir 1 kishi yugurmoqda'
+                          : `Hozir ${liveRunners.length} kishi yugurmoqda`}
+                      </Text>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.liveRunnersRow}>
+                      {liveRunners.map((runner) => (
+                        <View key={runner.userId} style={styles.liveRunnerChip}>
+                          <Avatar uri={runner.avatarUrl ? `${SERVER_URL}${runner.avatarUrl}` : null} name={runner.username} size={30} />
+                          <Text style={styles.liveRunnerName} numberOfLines={1}>
+                            {runner.username}
+                          </Text>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
 
                 <View style={styles.goalCard}>
                   <View style={styles.goalHeaderRow}>
@@ -2237,6 +2330,13 @@ const styles = StyleSheet.create({
   },
   headerGreeting: { fontSize: 12.5, lineHeight: 16, color: colors.textDim, fontFamily: font.bodySemi, marginBottom: 2 },
   headerTitle: { flex: 1, fontSize: 22, lineHeight: 28, fontFamily: font.display, color: colors.text, letterSpacing: 0.2 },
+  // The home screen's greeting+username needs `flex: 1` on the WRAPPING View
+  // (so it actually gets to fill the header row, pushing the logout button
+  // to the far right) rather than on the username Text itself - flex:1 on a
+  // Text nested inside a plain, non-flex View doesn't get real width to work
+  // with and squishes/wraps the username instead of rendering it at full size.
+  headerHomeTextWrap: { flex: 1 },
+  headerUsername: { fontSize: 22, lineHeight: 28, fontFamily: font.display, color: colors.text, letterSpacing: 0.2 },
   logoutButton: { padding: space.sm, backgroundColor: colors.bg1, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border },
   scrollContent: { padding: space.xl, paddingBottom: space.xxxl },
   inlineRetry: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: space.sm + 2 },
@@ -2538,6 +2638,20 @@ const styles = StyleSheet.create({
   planStepperValue: { color: colors.text, fontFamily: font.bodyBold, fontSize: 13.5, minWidth: 48, textAlign: 'center' },
   planError: { color: colors.danger, fontSize: 12, textAlign: 'center', marginTop: space.md, fontFamily: font.bodyMedium },
   planHint: { color: colors.textDim, fontSize: 11, textAlign: 'center', marginTop: space.md, lineHeight: 16, fontFamily: font.bodyMedium },
+  liveRunnersCard: {
+    backgroundColor: colors.bg1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: space.lg,
+    marginTop: space.lg,
+  },
+  liveRunnersHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.md },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
+  liveRunnersTitle: { color: colors.text, fontSize: 14, fontFamily: font.bodyBold },
+  liveRunnersRow: { gap: space.md },
+  liveRunnerChip: { alignItems: 'center', width: 60 },
+  liveRunnerName: { color: colors.textDim, fontSize: 10.5, fontFamily: font.bodyMedium, marginTop: 4, maxWidth: 60 },
   goalCard: {
     backgroundColor: colors.bg1,
     borderRadius: radius.lg,
