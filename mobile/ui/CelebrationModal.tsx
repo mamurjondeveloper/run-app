@@ -8,9 +8,14 @@ import { colors, font, radius, space, shadow } from '../theme';
 
 export interface CelebrationData {
   distanceKm: number;
-  pointsEarned: number;
+  /** null when the run finished offline - the server (not the client)
+   *  decides points, so there's nothing honest to show yet. */
+  pointsEarned: number | null;
   durationSec: number;
   warning?: string | null;
+  /** True when this run couldn't reach the server at all (offline start
+   *  and/or finish) and is queued to sync automatically once back online. */
+  pending?: boolean;
 }
 
 interface CelebrationModalProps {
@@ -91,11 +96,20 @@ export default function CelebrationModal({ data, onClose }: CelebrationModalProp
                 </View>
               </View>
 
-              <LinearGradient colors={[colors.accentSoft, 'transparent']} style={styles.pointsRow}>
-                <Text style={styles.pointsIcon}>✨</Text>
-                <AnimatedNumber value={data.pointsEarned} style={styles.pointsValue as any} />
-                <Text style={styles.pointsLabel}>ball to&apos;plandi</Text>
-              </LinearGradient>
+              {data.pointsEarned != null ? (
+                <LinearGradient colors={[colors.accentSoft, 'transparent']} style={styles.pointsRow}>
+                  <Text style={styles.pointsIcon}>✨</Text>
+                  <AnimatedNumber value={data.pointsEarned} style={styles.pointsValue as any} />
+                  <Text style={styles.pointsLabel}>ball to&apos;plandi</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.pendingRow}>
+                  <Text style={styles.pointsIcon}>📡</Text>
+                  <Text style={styles.pendingText}>
+                    Internet yo&apos;q edi — yugurish saqlandi va ulanish tiklanganda avtomatik yuboriladi. Ballar shunda hisoblanadi.
+                  </Text>
+                </View>
+              )}
 
               {!!data.warning && <Text style={styles.warning}>{data.warning}</Text>}
 
@@ -151,6 +165,17 @@ const styles = StyleSheet.create({
   pointsIcon: { fontSize: 16 },
   pointsValue: { color: colors.accent, fontSize: 18, fontFamily: font.bodyExtraBold },
   pointsLabel: { color: colors.textDim, fontSize: 13, fontFamily: font.bodyMedium },
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    marginTop: space.xl,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.warningSoft,
+  },
+  pendingText: { flex: 1, color: colors.warning, fontSize: 12, fontFamily: font.bodyMedium, lineHeight: 17 },
   warning: { color: colors.warning, fontSize: 12, fontFamily: font.bodyMedium, textAlign: 'center', marginTop: space.md, lineHeight: 17 },
   button: { height: 52, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center' },
   buttonText: { color: colors.onAccent, fontSize: 15, fontFamily: font.bodyExtraBold },

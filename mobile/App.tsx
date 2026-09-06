@@ -49,9 +49,11 @@ import {
   readRunPoints,
   clearRunBuffer,
   getLiveRunStats,
+  computeRunStats,
   RunPoint,
   RunStats,
 } from './locationTask';
+import { enqueuePendingRun, isLocalRunId, makeLocalRunId, syncPendingRuns } from './offlineSync';
 import LeafletMap from './LeafletMap';
 import LiveLeafletMap, { LiveLeafletMapHandle } from './LiveLeafletMap';
 import {
@@ -479,6 +481,40 @@ function AppInner() {
     if (token && screen === 'profile' && !stats) fetchHome();
   }, [token, screen, stats, fetchHome]);
 
+  // Any run that started and/or finished without reaching the server (see
+  // offlineSync.ts) sits queued locally until this runs successfully -
+  // tried once right after login/session-restore (in case runs were queued
+  // during a previous session that closed while still offline) and again
+  // every time connectivity transitions from offline back to online.
+  const syncOfflineRuns = useCallback(async () => {
+    if (!token) return;
+    try {
+      const { synced } = await syncPendingRuns(getApi());
+      if (synced > 0) {
+        showAlert(
+          'Ulanish tiklandi',
+          synced === 1
+            ? 'Oflayn yozib olingan 1 ta yugurish serverga yuborildi.'
+            : `Oflayn yozib olingan ${synced} ta yugurish serverga yuborildi.`,
+        );
+        fetchHome();
+      }
+    } catch (err) {
+      console.warn('syncPendingRuns failed:', err);
+    }
+  }, [token, getApi, fetchHome]);
+
+  useEffect(() => {
+    if (token) syncOfflineRuns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const prevOfflineRef = useRef(isOffline);
+  useEffect(() => {
+    if (prevOfflineRef.current && !isOffline) syncOfflineRuns();
+    prevOfflineRef.current = isOffline;
+  }, [isOffline, syncOfflineRuns]);
+
   const fetchLeaderboard = useCallback(async () => {
     if (!token) return;
     // Cancel a still-in-flight request from a previous period switch so a
@@ -750,10 +786,26 @@ function AppInner() {
       // notification and the live-stats notification updated during tracking.
       await requestNotificationPermission();
 
-      const res = await getApi().post('/runs/start', plannedRoute
-        ? { plannedRoutePath: plannedRoute.path, plannedDistanceMeters: plannedRoute.distanceMeters }
-        : {});
-      const runId = res.data.id as string;
+      // GPS recording itself never needed the network - only telling the
+      // server a run began does. Rather than block the whole run on that
+      // (leaving nothing recorded if there's no signal right now, e.g.
+      // starting a run in a park with no coverage), a genuine network
+      // failure here just gets a local placeholder id instead of an error:
+      // tracking starts immediately either way, and the real server run is
+      // created retroactively once online (see offlineSync.ts).
+      let runId: string;
+      try {
+        const res = await getApi().post('/runs/start', plannedRoute
+          ? { plannedRoutePath: plannedRoute.path, plannedDistanceMeters: plannedRoute.distanceMeters }
+          : {});
+        runId = res.data.id as string;
+      } catch (err: any) {
+        if (axios.isAxiosError(err) && !err.response) {
+          runId = makeLocalRunId();
+        } else {
+          throw err; // a real server-side rejection (banned, bad input, …) - surface it as before
+        }
+      }
       const startedAt = Date.now();
 
       await clearRunBuffer();
@@ -809,7 +861,32 @@ function AppInner() {
       // Only the raw path is sent — the server recomputes distance/speed from
       // it itself, since trusting client-submitted numbers directly would
       // make the leaderboard trivially fakeable.
-      const res = await getApi().patch(`/runs/${activeRunId}/finish`, { path: points });
+      //
+      // A run that started offline never got a real server id (activeRunId
+      // is a local placeholder - see handleStartRun), so there's no point
+      // even reachable to PATCH; a run that started online but lost signal
+      // by the time it finished will have the PATCH itself fail with a
+      // network error. Either way the recorded path is queued for
+      // offlineSync.ts to submit once connectivity returns, instead of
+      // showing an error and stranding the finished run with nothing saved.
+      let finishData: any = null;
+      const startedOffline = isLocalRunId(activeRunId);
+      if (!startedOffline) {
+        try {
+          const res = await getApi().patch(`/runs/${activeRunId}/finish`, { path: points });
+          finishData = res.data;
+        } catch (err: any) {
+          if (!(axios.isAxiosError(err) && !err.response)) throw err; // a real server rejection - surface it as before
+        }
+      }
+      if (!finishData) {
+        await enqueuePendingRun({
+          runId: startedOffline ? null : activeRunId,
+          plannedRoutePath: activePlannedRoute?.path ?? null,
+          plannedDistanceMeters: activePlannedRoute?.distanceMeters ?? null,
+          path: points,
+        });
+      }
 
       await clearRunBuffer();
       await dismissRunNotification();
@@ -820,22 +897,35 @@ function AppInner() {
       setLiveSpeedWarning(false);
       setIsRunModalVisible(false);
 
-      setCelebration({
-        distanceKm: res.data.distanceMeters / 1000,
-        pointsEarned: res.data.pointsEarned,
-        durationSec: res.data.durationSec,
-        warning: res.data.warning,
-      });
-      if (res.data.banned) {
-        showAlert(
-          "Hisob to'xtatildi",
-          "Hisobingiz takroriy tezlik qoidabuzarliklari uchun to'xtatildi. Agar bu xato deb hisoblasangiz, qo'llab-quvvatlash xizmatiga murojaat qiling.",
-        );
+      if (finishData) {
+        setCelebration({
+          distanceKm: finishData.distanceMeters / 1000,
+          pointsEarned: finishData.pointsEarned,
+          durationSec: finishData.durationSec,
+          warning: finishData.warning,
+        });
+        if (finishData.banned) {
+          showAlert(
+            "Hisob to'xtatildi",
+            "Hisobingiz takroriy tezlik qoidabuzarliklari uchun to'xtatildi. Agar bu xato deb hisoblasangiz, qo'llab-quvvatlash xizmatiga murojaat qiling.",
+          );
+        }
+        // These two don't depend on each other - firing them together instead
+        // of one after the other saves a full network round trip.
+        const [, meRes] = await Promise.all([fetchHome(), getApi().get('/auth/me').catch(() => null)]);
+        if (meRes) setCurrentUser(meRes.data);
+      } else {
+        // Offline - the server (not the client) decides points, so there's
+        // nothing honest to show for those yet; distance/time are computed
+        // locally so the celebration still reflects the real run.
+        const localStats = computeRunStats(points);
+        setCelebration({
+          distanceKm: localStats.distanceMeters / 1000,
+          pointsEarned: null,
+          durationSec: localStats.durationSec,
+          pending: true,
+        });
       }
-      // These two don't depend on each other - firing them together instead
-      // of one after the other saves a full network round trip.
-      const [, meRes] = await Promise.all([fetchHome(), getApi().get('/auth/me').catch(() => null)]);
-      if (meRes) setCurrentUser(meRes.data);
     } catch (err: any) {
       showAlert('Xato', err.response?.data?.message || "Yugurishni saqlab bo'lmadi");
     } finally {
@@ -852,7 +942,11 @@ function AppInner() {
         onPress: async () => {
           try {
             await finishTracking();
-            if (activeRunId) {
+            // A run that started offline (see handleStartRun) never got a
+            // real server id, so there's nothing there to discard - only
+            // bother with the network call for a run the server actually
+            // knows about.
+            if (activeRunId && !isLocalRunId(activeRunId)) {
               // Best-effort: local state is cleared regardless (below) so the
               // user isn't stuck if this fails, but log it - if the server
               // call fails here, that run stays "in_progress" server-side
@@ -1663,6 +1757,12 @@ function AppInner() {
                     <BlurView intensity={70} tint="dark" style={styles.liveWarningPill}>
                       <Ionicons name="warning-outline" size={16} color={colors.warning} />
                       <Text style={styles.runModalWarningText}>Juda tez — bu qism hisoblanmaydi</Text>
+                    </BlurView>
+                  )}
+                  {isOffline && (
+                    <BlurView intensity={70} tint="dark" style={styles.liveWarningPill}>
+                      <Ionicons name="cloud-offline-outline" size={16} color={colors.textDim} />
+                      <Text style={styles.runModalWarningText}>Oflayn — yugurish qurilmada saqlanmoqda</Text>
                     </BlurView>
                   )}
                 </SafeAreaView>
